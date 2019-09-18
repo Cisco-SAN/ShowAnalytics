@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
 ##############################################################
-# Copyright (c) 2019 by Cisco Systems, Inc.  #
+# Copyright (c) 2019 by Cisco Systems, Inc.
+# Applicable for NX-OS 8.3(1) and above
 ##############################################################
 
 import sys
@@ -141,11 +142,12 @@ def is_traffic_running(port):
         out_list.append('Unable to fing traffic status for interface {}'.format(port))
         return (False, out_list)
     if out1 != out:
-        return (True,[])
+        return (True, [])
     else:
-        return (False,[])
+        return (False, [])
+
     
-def clear_previous_lines (number_of_lines) :
+def clear_previous_lines (number_of_lines):
     '''
     **********************************************************************************
     * Function: clear_previous_lines
@@ -154,9 +156,10 @@ def clear_previous_lines (number_of_lines) :
     * Returns: None
     **********************************************************************************
     '''
-    for _ in xrange(number_of_lines) :
+    for _ in xrange(number_of_lines):
         sys.stdout.write("\x1b[1A")
         sys.stdout.write("\x1b[2K")
+
 
 def check_port_is_analytics_enabled(inte):
     '''
@@ -168,7 +171,7 @@ def check_port_is_analytics_enabled(inte):
     **********************************************************************************
     '''
     mod = inte.strip().split('/')[0][2:]
-    status,sdb_out = cmd_exc("sh analytics port-sampling module {} | i '{}'".format(mod,inte))
+    status,sdb_out = cmd_exc("sh analytics port-sampling module {} | i '{}'".format(mod, inte))
     if not status:
         return False
     if inte not in sdb_out:
@@ -186,7 +189,7 @@ def get_analytics_module():
     '''
     global analytics_supported_module
     cmd = "sh mod | i {} | cut -d ' ' -f 1".format('|'.join(analytics_supported_module))
-    status,out = cmd_exc(cmd)
+    status, out = cmd_exc(cmd)
     if not status:
         print out
         #print 'Unable to find analytics supported module'
@@ -204,7 +207,7 @@ def get_up_ints_permodule(module):
     * Returns: list of interfaces which are up in that module
     **********************************************************************************
     '''
-    status,out  = cmd_exc("sh int br | i fc{} | i 'up|trunking' | cut -d ' ' -f 1".format(module))
+    status, out  = cmd_exc("sh int br | i fc{} | i 'up|trunking' | cut -d ' ' -f 1".format(module))
     if not status:
         print out
         print 'Unable to find any up interface in module {}'.format(module)
@@ -227,26 +230,26 @@ def getTermWid():
         term_wid = 511
     return term_wid
 
-class flogi() :
+class flogi():
     '''
     **********************************************************************************
     * Class for parsing show flogi database output
     **********************************************************************************
     ''' 
-    def __init__(self,str_out) :
+    def __init__(self, str_out):
         ints = {}
         vsans = {}
         fcids = []
         pwwns = {}
         wwns = {}
         for line in str_out.split('\n') :
-             try :
-                 inte,vsan,fcid,pwwn,wwn = line.split()
-             except :
+             try:
+                 inte, vsan, fcid, pwwn, wwn = line.split()
+             except:
                  continue
              if inte not in ints.keys() :
                  ints[inte] = [fcid]
-             else :
+             else:
                  ints[inte].append(fcid)
              vsans[fcid] = vsan
              fcids.append(fcid)
@@ -260,25 +263,26 @@ class flogi() :
         self.wwns = wwns
 
 
-    def get_fcids(self,interface) :
-        if interface in self.ints.keys() :
+    def get_fcids(self, interface):
+        if interface in self.ints.keys():
             return self.ints[interface]
-        else :
+        else:
             return []
 
-    def get_vsan(self,fcidd) :
-        if fcidd in self.vsans.keys() :
+    def get_vsan(self, fcidd):
+        if fcidd in self.vsans.keys():
             return self.vsans[fcidd]
-        else :
+        else:
             return None
         
-    def get_pwwn(self,fcidd) :
-        if fcidd in self.pwwns.keys() :
+    def get_pwwn(self, fcidd):
+        if fcidd in self.pwwns.keys():
             return self.pwwns[fcidd]
-        else :
+        else:
             return None
 
-def fcid_Normalizer(fcid) :
+
+def fcid_Normalizer(fcid):
     '''
     **********************************************************************************
     * Function: fcid_Normalizer
@@ -287,12 +291,13 @@ def fcid_Normalizer(fcid) :
     * Returns: fcid in 0xDDAAPP format
     **********************************************************************************
     '''
-    if len(fcid) == 8 :
+    if len(fcid) == 8:
         return fcid
-    elif len(fcid) == 7 :
+    elif len(fcid) == 7:
         return fcid[0:2]+'0'+fcid[2:9]
     else :
         return fcid
+
 
 def getDalias():
     '''
@@ -315,6 +320,7 @@ def getDalias():
         except:
             continue
     return pwwn2alias
+
 
 def getfcid2pwwn():
     '''
@@ -346,7 +352,8 @@ def getfcid2pwwn():
             continue
     return fcid2pwwn
 
-def alias_maker(init_fcid,targ_fcid,f2p,p2a,vsan):
+
+def alias_maker(init_fcid, targ_fcid, f2p, p2a, vsan):
     '''
     **********************************************************************************
     * Function: alias_maker
@@ -359,15 +366,16 @@ def alias_maker(init_fcid,targ_fcid,f2p,p2a,vsan):
 
     iav = False
     alias_str = ''
-    for fcid in [init_fcid,targ_fcid]:
+    for fcid in [init_fcid, targ_fcid]:
         val = '  '
         if (str(fcid),int(vsan)) in f2p:
-            pwn = f2p[(str(fcid),int(vsan))]
-            if pwn in p2a :
+            pwn = f2p[(str(fcid), int(vsan))]
+            if pwn in p2a:
                 iav = True
                 val=p2a[pwn]
         alias_str = alias_str+'::'+val
-    return [alias_str,iav]
+    return [alias_str, iav]
+
 
 def parse_module(module_str):
     '''
@@ -386,7 +394,7 @@ def parse_module(module_str):
             except:
                 print "Invalid module {}".format(mod)
                 return []
-            module.extend(range(int(st),int(en)+1))
+            module.extend(range(int(st), int(en)+1))
         else:
              if mod.isdigit():
                  module.append(mod)
@@ -409,12 +417,12 @@ def parse_intlist(intlist_str):
         return []
     for inte in intlist_str.split(','):
        if '-' in inte:
-           start_int,end_int = [i.strip() for i in inte.split('-')]
+           start_int, end_int = [i.strip() for i in inte.split('-')]
            if not start_int.startswith('fc'):
                 print "Invalid interface {}".format(start_int)
                 return []
            try:
-               start_mod,start_port = [ i for i in start_int[2:].split('/') if i.isdigit()]
+               start_mod, start_port = [ i for i in start_int[2:].split('/') if i.isdigit()]
            except:
                print "Invalid interface {}".format(start_int)
                return []
@@ -427,7 +435,7 @@ def parse_intlist(intlist_str):
                if start_mod != end_mod:
                    print "Invalid interface range {} as start and end module number are different".format(inte)
                    return []
-               intlist.extend(['fc'+str(start_mod)+'/'+str(i) for i in range(int(start_port),int(end_port)+1)])
+               intlist.extend(['fc'+str(start_mod)+'/'+str(i) for i in range(int(start_port), int(end_port)+1)])
                
            else:
                if not end_int.isdigit():
@@ -437,7 +445,7 @@ def parse_intlist(intlist_str):
                    intlist.extend(['fc'+str(start_mod)+'/'+str(i) for i in range(int(start_port),int(end_int)+1)])
                    
        else:
-           if re.match('fc\d+\/\d+',inte):
+           if re.match('fc\d+\/\d+', inte):
                intlist.append(inte)
            else:
                print 'Invalid interface {}'.format(inte)
@@ -458,10 +466,10 @@ def time_formator(sec_count):
     out = ''
     if sec_count > 3600:
         out += '{} hours '.format(sec_count/3600)
-        sec_count = sec_count%3600
+        sec_count = sec_count % 3600
     if sec_count > 60:
         out += '{} minutes '.format(sec_count/60)
-        sec_count = sec_count%60
+        sec_count = sec_count % 60
     out += '{} seconds'.format(sec_count)
     return out
 
@@ -499,7 +507,7 @@ def check_analytics_conf_per_module(mod):
     * Returns: Bool which is True if not even single interface on that module has analytics configured and else False
     **********************************************************************************
     '''
-    status,out = cmd_exc(" show analytics port-sampling module {} | i fc".format(mod))
+    status,out = cmd_exc("show analytics port-sampling module {} | i fc".format(mod))
     if not status:
         print out
         print 'Unable to get analytics configuration for module {}'.format(mod)
@@ -521,8 +529,9 @@ def extract_module_from_port(inte):
         return int(inte.split('/')[0].split('c')[1])
     else:
         return 0
- 
-def validateArgs (args) :
+
+
+def validateArgs (args):
     '''
     **********************************************************************************
     * Function: validateArgs
@@ -547,35 +556,35 @@ def validateArgs (args) :
         print "\n Please choose a single table type via --initiator-itl or --target-itl\n"
         return False
 
-    if args.initiator :
+    if args.initiator:
         try :
             initiator_id = int(args.initiator, 16)
-            if initiator_id >> 32 :
+            if initiator_id >> 32:
                 print "Please enter a valid initiator id in hexadecimal format"
                 return False
         except ValueError:
             print "Please enter a valid initiator id in hexadecimal format"
             return False
 
-    if args.target :
+    if args.target:
         try :
             target_id = int(args.target, 16)
-            if target_id >> 32 :
+            if target_id >> 32:
                 print "Please enter a valid target id in hexadecimal format"
                 return False
         except ValueError:
             print "Please enter a valid target id in hexadecimal format"
             return False
 
-    if args.alias :
+    if args.alias:
         if not (args.errors or args.errorsonly or args.info or args.minmax or args.top):
             print "\n Alias option is only supported with --errors or --errorsonly or --info or --minmax or --top\n"
             return False
-    if args.lun :
+    if args.lun:
         lun = "0x" + ((args.lun).replace("-", ""))[::-1]
         try :
             lun_id = int(lun, 16)
-            if lun_id >> 64 :
+            if lun_id >> 64:
                 print "Please enter a valid lun id in xxxx-xxxx-xxxx-xxxx format"
                 return False
         except ValueError :
@@ -597,7 +606,7 @@ def validateArgs (args) :
                 global top_count
                 top_count = args.limit
                 args.limit = 20000
-            elif args.limit != 20000 :
+            elif args.limit != 20000:
                 print '--top supports maximum limit of 10'
                 return False
         if (args.limit > int(max_flow_limit)) or (args.limit < 1):
@@ -614,7 +623,7 @@ def validateArgs (args) :
             print '--key can only take thput or iops or ect'
             return False
         if args.key not in ['IOPS', 'THPUT', 'ECT']:
-            print " {}  is not a valid key".format(args.key)
+            print " {0}  is not a valid key".format(args.key)
             return False
     if args.progress:
         if not args.top:
@@ -630,10 +639,10 @@ def validateArgs (args) :
             return False
         module = parse_module(args.module)
         analytics_mods = get_analytics_module()
-        invalid_module = [ i for i in module if i not in analytics_mods]
+        invalid_module = [i for i in module if i not in analytics_mods]
         if invalid_module != []:
             print 'Module {} does not support analytics or is not present'.format(",".join(invalid_module))
-            module = [ i for i in module if i not in invalid_module ]
+            module = [i for i in module if i not in invalid_module]
         if module == []:
              print "Please provide valid module list"
              return False
@@ -644,11 +653,11 @@ def validateArgs (args) :
         global interface_list
 
         if not args.evaluate_npuload:
-            if ',' in args.interface :
+            if ',' in args.interface:
                 print 'Please provide Single interface only'
                 return False
             if not re.match('fc\d+\/\d+', args.interface):
-                if ( not args.vsan_thput ) or ( not re.match('port-channel\d+',args.interface) ):
+                if (not args.vsan_thput ) or (not re.match('port-channel\d+',args.interface)):
                     print 'Please provide Valid Interface'
                     return False
 
@@ -657,16 +666,16 @@ def validateArgs (args) :
             return False
         if args.evaluate_npuload:
             intlist = parse_intlist(args.interface)
-        else :
+        else:
             intlist = [args.interface]
         if args.vsan_thput:
-            pcre = re.match('port-channel(\d+)',args.interface)
-            if pcre != None :
+            pcre = re.match('port-channel(\d+)', args.interface)
+            if pcre is not None:
                 pc_num = int(pcre.group(1))
-                po_mem_out = cli.cli("show port-channel database interface port-channel %d | i up"%pc_num)
-                intlist = re.findall('fc\d+\/\d+',po_mem_out)
-                if intlist == [] :
-                    print "Port-channel %d has no operational member"%pc_num
+                po_mem_out = cli.cli("show port-channel database interface port-channel {0} | i up".format(pc_num))
+                intlist = re.findall('fc\d+\/\d+', po_mem_out)
+                if intlist == []:
+                    print "Port-channel {0} has no operational member".format(pc_num)
                     return False
                 intlist1 = filter(check_port_is_analytics_enabled,intlist)
                 if intlist1 != intlist:
@@ -674,10 +683,10 @@ def validateArgs (args) :
                     return False
         if args.evaluate_npuload:
             analytics_mods = get_analytics_module()
-            invalid_intlist = [ i for i in intlist if i.strip().split('/')[0][2:] not in analytics_mods ]
+            invalid_intlist = [i for i in intlist if i.strip().split('/')[0][2:] not in analytics_mods]
             if invalid_intlist != []:
                 print 'Interface {} does not support analytics'.format(",".join(invalid_intlist))
-            intlist = [ i for i in intlist if i not in invalid_intlist ]
+            intlist = [i for i in intlist if i not in invalid_intlist]
             if intlist == []:
                 print "Please provide valid interface"
                 return False
@@ -690,13 +699,13 @@ def validateArgs (args) :
                 interface_list = [args.interface,intlist]
                 args.interface = None
 
-    if args.vsan_thput :
+    if args.vsan_thput:
         if args.alias or args.initiator or args.target or args.module:
            print '--vsan-thput only supports --interface argument'
            return False
 
-    if args.outstanding_io :
-        if args.interface == None :
+    if args.outstanding_io:
+        if args.interface is None:
             print "--outstanding-io is interface specific option .. Please specify interface and try again"
             return False
 
@@ -720,7 +729,7 @@ def thput_conv(thput_val):
 
     try:
         out1 = float(thput_val)
-    except :
+    except:
         return 'NA'
 
     if out1 == 0.000:
@@ -745,9 +754,9 @@ def time_conv(time_val):
     **********************************************************************************
     '''
 
-    try :
+    try:
         out1 = float(time_val)
-    except :
+    except:
         return 'NA'
  
     if out1 == 0.000:
@@ -773,7 +782,7 @@ def tick_to_time(tick):
     * Returns: Int number of microseconds
     **********************************************************************************
     '''
-    out1 = float(tick)/256
+    out1 = float(tick) / 256
     return time_conv(out1)
 
 
@@ -793,22 +802,23 @@ def getMinMaxAvg(min_col, max_col, total_col, count_col) :
     min_val = 0
     max_val = 0
     avg_val = 0
-    if min_col in json_out['values']['1'] :
+    if min_col in json_out['values']['1']:
         min_val = json_out['values']['1'][min_col]
 
-    if max_col in json_out['values']['1'] :
+    if max_col in json_out['values']['1']:
         max_val = json_out['values']['1'][max_col]
 
-    if total_col in json_out['values']['1'] and count_col in json_out['values']['1'] and long(json_out['values']['1'][count_col]) > 0 :
+    if (total_col in json_out['values']['1'] and count_col in json_out['values']['1'] and long(json_out['values']['1'][count_col]) > 0):
         #avg_val = long(json_out['values']['1'][count_col]) / long(json_out['values']['1'][count_col])
-        try :
+        try:
             avg_val = long(json_out['values']['1'][total_col]) / long(json_out['values']['1'][count_col])
-        except ZeroDivisionError :
+        except ZeroDivisionError:
             avg_val = 0
 
     return str(min_val) + '/' + str(max_val) + '/' + str(avg_val)
 
-def getAnalyticsEnabledPorts() :
+
+def getAnalyticsEnabledPorts():
     '''
     **********************************************************************************
     * Function: getAnalyticsEnabledPorts
@@ -819,10 +829,10 @@ def getAnalyticsEnabledPorts() :
     out = []
     j_s = ""  
     qry = 'select port from fc-scsi.logical_port'
-    try :
+    try:
         j_s = cli.cli("show analytics query '" + qry + "'")
         j_s = json.loads(j_s)
-    except :
+    except:
         j_s = None
         pass
     sizeJson = len(j_s['values'])
@@ -830,7 +840,7 @@ def getAnalyticsEnabledPorts() :
     while counter <= sizeJson:
         for key,value in j_s['values'][str(counter)].iteritems():
             if str(key) == 'port':
-                if value not in out :
+                if value not in out:
                     out.append(str(value))
         counter += 1
     return out
@@ -861,7 +871,7 @@ def getPureFPorts():
     return fports
 
 
-def vsanNormalizer(vsan_str) :
+def vsanNormalizer(vsan_str):
     '''
        Parse Vsan Range and convert it into list
        1-10   => [1,2,3,4,5,6,7,8,9,10]
@@ -874,8 +884,8 @@ def vsanNormalizer(vsan_str) :
         if '-' in vsan_ins:
             vsan_range = vsan_ins.split('-')
             try:
-                start_vsan,end_vsan = map(int,vsan_range)
-                out.extend(range(start_vsan,end_vsan+1))
+                start_vsan, end_vsan = map(int, vsan_range)
+                out.extend(range(start_vsan, end_vsan+1))
             except:
                 print "Unable to Parse Vsan range {}".format(vsan_ins)
                 continue
@@ -888,7 +898,7 @@ def vsanNormalizer(vsan_str) :
     return out              
 
 
-def getVsansPerEPort(prt) :
+def getVsansPerEPort(prt):
     '''
     **********************************************************************************
     * Function: getVsansPerEPort
@@ -901,15 +911,15 @@ def getVsansPerEPort(prt) :
     try:
         upvsan_out = cli.cli('show interface '+str(prt)+' | i up')
         out1 = re.search('\(up\)\s+\(([0-9-,]+)\)',upvsan_out)
-    except :
+    except:
         print 'Unknown Interface '+str(prt)
         exit()
-    if out1 != None :
+    if out1 is not None:
         out.extend(vsanNormalizer(out1.group(1)))
     return out
 
 
-def read_write_stats(read_thput, write_thput, rios,wios,rir,wir) :
+def read_write_stats(read_thput, write_thput, rios, wios, rir, wir):
 
     '''
       This Function add control part also to the rate 
@@ -943,31 +953,32 @@ def read_write_stats(read_thput, write_thput, rios,wios,rir,wir) :
 
     '''
 
-    if int(read_thput) != 0 :
-        rd_pkt_cnt_pr_cmd = rios/2048
-        if rios%2048 != 0 :
+    if int(read_thput) != 0:
+        rd_pkt_cnt_pr_cmd = rios / 2048
+        if rios%2048 != 0:
             rd_pkt_cnt_pr_cmd += 1
         affected_read = (((rd_pkt_cnt_pr_cmd*36) + 116) * rir)  +  read_thput
         #affected_read = (((rd_pkt_cnt_pr_cmd*36) + (52)) * rir)  +  read_thput
-    else :
+    else:
         affected_read = 0
-    if int(write_thput) != 0 :
-        wr_pkt_cnt_pr_cmd = wios/2048
-        if wios%2048 != 0 :
+    if int(write_thput) != 0:
+        wr_pkt_cnt_pr_cmd = wios / 2048
+        if wios%2048 != 0:
             wr_pkt_cnt_pr_cmd += 1
         affected_write = (((wr_pkt_cnt_pr_cmd*36) + 164) * wir)  +  write_thput
-    else :
+    else:
         affected_write = 0
 
-    return [affected_read,affected_write]
+    return [affected_read, affected_write]
 
 
-def displayDetailOverlay(json_out):
+def displayDetailOverlay(json_out, ver=None):
     '''
     **********************************************************************************
     * Function: displayDetailOverlay
     *
     * Input: json_out is the json data returned by switch as response for querry
+    *        ver is software version of switch
     * Action: Displays detailed statistics of a particular ITL
     * Returns: None
     **********************************************************************************
@@ -1005,7 +1016,7 @@ def displayDetailOverlay(json_out):
 
     conv ={'read_io_rate':'Read  IOPS', 'write_io_rate':'Write IOPS', 'read_io_bandwidth':'Read  Throughput', 'write_io_bandwidth':'Write Throughput'}
     for key in ['read_io_rate', 'write_io_rate', 'read_io_bandwidth', 'write_io_bandwidth'] :
-        if key in json_out['values']['1'] :
+        if key in json_out['values']['1']:
             col_values = []
             salt = '       '
             if 'rate' not in key:
@@ -1019,13 +1030,17 @@ def displayDetailOverlay(json_out):
                     out_val = thput_conv(out_val)
             col_values.append(out_val)
             t.add_row(col_values)
+            
+    trib, twib, tric, twic = 'total_time_metric_based_read_io_bytes', 'total_time_metric_based_write_io_bytes', 'total_time_metric_based_read_io_count', 'total_time_metric_based_write_io_count'
+    if ver == '8.3(1)':
+        trib, twib, tric, twic = 'total_read_io_bytes', 'total_write_io_bytes', 'total_read_io_count', 'total_write_io_count'
 
     # io size
     col_values = []
     col_values.append('Read  Size         (Acc Avg)')
     #col_values.append(getMinMaxAvg('read_io_size_min', 'read_io_size_max', 'total_read_io_blocks', 'total_time_metric_based_read_io_count'))
     #col_values.append(getMinMaxAvg('read_io_size_min', 'read_io_size_max', 'total_time_metric_based_read_io_bytes', 'total_time_metric_based_read_io_count'))
-    miin,maax,avg = getMinMaxAvg('read_io_size_min', 'read_io_size_max', 'total_time_metric_based_read_io_bytes', 'total_time_metric_based_read_io_count').split('/')
+    miin, maax, avg = getMinMaxAvg('read_io_size_min', 'read_io_size_max', trib, tric).split('/')
     col_values.extend(map(lambda x:"{} B".format(x) if int(x) != 0 else 0, [miin,maax,avg]))
     #miin,maax,avg = [" {} B".format(val) for val in [miin,maax,avg]]
     #col_values.append("/".join([miin,maax,avg]))
@@ -1035,8 +1050,8 @@ def displayDetailOverlay(json_out):
     col_values.append('Write Size         (Acc Avg)')
     #col_values.append(getMinMaxAvg('write_io_size_min', 'write_io_size_max', 'total_write_io_blocks', 'total_time_metric_based_write_io_count'))
     #col_values.append(getMinMaxAvg('write_io_size_min', 'write_io_size_max', 'total_time_metric_based_write_io_bytes', 'total_time_metric_based_write_io_count'))
-    miin,maax,avg = getMinMaxAvg('write_io_size_min', 'write_io_size_max', 'total_time_metric_based_write_io_bytes', 'total_time_metric_based_write_io_count').split('/')
-    col_values.extend(map(lambda x:"{} B".format(x) if int(x) != 0 else 0, [miin,maax,avg]))
+    miin, maax, avg = getMinMaxAvg('write_io_size_min', 'write_io_size_max', twib, twic).split('/')
+    col_values.extend(map(lambda x:"{} B".format(x) if int(x) != 0 else 0, [miin, maax, avg]))
     #miin,maax,avg = [" {} B".format(val) for val in [miin,maax,avg]]
     #col_values.append(" | ".join([miin,maax,avg]))
     t.add_row(col_values)
@@ -1045,17 +1060,17 @@ def displayDetailOverlay(json_out):
     col_values = []
     col_values.append('Read  DAL          (Acc Avg)')
     #col_values.append(getMinMaxAvg('read_io_initiation_time_min', 'read_io_initiation_time_max', 'total_read_io_initiation_time', 'total_time_metric_based_read_io_count'))
-    miin,maax,avg =getMinMaxAvg('read_io_initiation_time_min', 'read_io_initiation_time_max', 'total_read_io_initiation_time', 'total_time_metric_based_read_io_count').split('/')
-    col_values.extend(map(time_conv,[miin,maax,avg]))
+    miin, maax, avg =getMinMaxAvg('read_io_initiation_time_min', 'read_io_initiation_time_max', 'total_read_io_initiation_time', 'total_time_metric_based_read_io_count').split('/')
+    col_values.extend(map(time_conv,[miin, maax, avg]))
     #miin,maax,avg = ["{} \xce\xbcs".format(val) for val in [miin,maax,avg]] 
     #col_values.append(" | ".join([miin,maax,avg]))
     t.add_row(col_values)
 
     col_values = []
     col_values.append('Write DAL          (Acc Avg)')
-    miin,maax,avg = getMinMaxAvg('write_io_initiation_time_min', 'write_io_initiation_time_max', 'total_write_io_initiation_time', 'total_time_metric_based_write_io_count').split('/')
+    miin, maax, avg = getMinMaxAvg('write_io_initiation_time_min', 'write_io_initiation_time_max', 'total_write_io_initiation_time', twic).split('/')
     #miin,maax,avg = ["{} \xce\xbcs".format(val) for val in [miin,maax,avg]] 
-    col_values.extend(map(time_conv,[miin,maax,avg]))
+    col_values.extend(map(time_conv, [miin, maax, avg]))
     #col_values.append(" | ".join([miin,maax,avg]))
     #col_values.append(getMinMaxAvg('write_io_initiation_time_min', 'write_io_initiation_time_max', 'total_write_io_initiation_time', 'total_time_metric_based_write_io_count'))
     t.add_row(col_values)
@@ -1063,8 +1078,8 @@ def displayDetailOverlay(json_out):
     # io completion time
     col_values = []
     col_values.append('Read  ECT          (Acc Avg)')
-    miin,maax,avg = getMinMaxAvg('read_io_completion_time_min', 'read_io_completion_time_max', 'total_read_io_time', 'total_time_metric_based_read_io_count').split('/')
-    col_values.extend(map(time_conv,[miin,maax,avg]))
+    miin, maax, avg = getMinMaxAvg('read_io_completion_time_min', 'read_io_completion_time_max', 'total_read_io_time', tric).split('/')
+    col_values.extend(map(time_conv,[miin, maax, avg]))
     #miin,maax,avg = ["{} \xce\xbcs".format(val) for val in [miin,maax,avg]] 
     #col_values.append("/".join([miin,maax,avg]))
     #col_values.append(getMinMaxAvg('read_io_completion_time_min', 'read_io_completion_time_max', 'total_read_io_time', 'total_time_metric_based_read_io_count'))
@@ -1072,8 +1087,8 @@ def displayDetailOverlay(json_out):
 
     col_values = []
     col_values.append('Write ECT          (Acc Avg)')
-    miin,maax,avg = getMinMaxAvg('write_io_completion_time_min', 'write_io_completion_time_max', 'total_write_io_time', 'total_time_metric_based_write_io_count').split('/')
-    col_values.extend(map(time_conv,[miin,maax,avg]))
+    miin, maax, avg = getMinMaxAvg('write_io_completion_time_min', 'write_io_completion_time_max', 'total_write_io_time', twic).split('/')
+    col_values.extend(map(time_conv, [miin,maax,avg]))
     #miin,maax,avg = ["{} \xce\xbcs".format(val) for val in [miin,maax,avg]] 
     #col_values.append(" | ".join([miin,maax,avg]))
     #col_values.append(getMinMaxAvg('write_io_completion_time_min', 'write_io_completion_time_max', 'total_write_io_time', 'total_time_metric_based_write_io_count'))
@@ -1082,23 +1097,23 @@ def displayDetailOverlay(json_out):
     # io inter gap time
     col_values = []
     col_values.append('Read  Inter-IO-Gap (Acc Avg)')
-    min_read_io_gap,max_read_io_gap,avg_read_io_gap = [tick_to_time(int(i)) for i in getMinMaxAvg('read_io_inter_gap_time_min', 'read_io_inter_gap_time_max', 'total_read_io_inter_gap_time', 'total_time_metric_based_read_io_count').split('/')]
+    min_read_io_gap, max_read_io_gap, avg_read_io_gap = [tick_to_time(int(i)) for i in getMinMaxAvg('read_io_inter_gap_time_min', 'read_io_inter_gap_time_max', 'total_read_io_inter_gap_time', tric).split('/')]
     #min_read_io_gap,max_read_io_gap,avg_read_io_gap = (min_read_io_gap*1000)/256,max_read_io_gap/(256*1000),avg_read_io_gap/256
-    col_values.extend(["{}".format(min_read_io_gap),"{}".format(max_read_io_gap),"{}".format(avg_read_io_gap)])
+    col_values.extend(["{}".format(min_read_io_gap), "{}".format(max_read_io_gap), "{}".format(avg_read_io_gap)])
     #col_values.append(getMinMaxAvg('read_io_inter_gap_time_min', 'read_io_inter_gap_time_max', 'total_read_io_inter_gap_time', 'total_time_metric_based_read_io_count'))
     t.add_row(col_values)
 
     col_values = []
     col_values.append('Write Inter-IO-Gap (Acc Avg)')
-    min_write_io_gap,max_write_io_gap,avg_write_io_gap = [tick_to_time(int(i)) for i in getMinMaxAvg('write_io_inter_gap_time_min', 'write_io_inter_gap_time_max', 'total_write_io_inter_gap_time', 'total_time_metric_based_write_io_count').split('/')]
+    min_write_io_gap, max_write_io_gap, avg_write_io_gap = [tick_to_time(int(i)) for i in getMinMaxAvg('write_io_inter_gap_time_min', 'write_io_inter_gap_time_max', 'total_write_io_inter_gap_time', twic).split('/')]
     #min_write_io_gap,max_write_io_gap,avg_write_io_gap = (min_write_io_gap*1000)/256,max_write_io_gap/(256*1000),avg_write_io_gap/256
-    col_values.extend(["{}".format(min_write_io_gap),"{}".format(max_write_io_gap),"{}".format(avg_write_io_gap)])
+    col_values.extend(["{}".format(min_write_io_gap), "{}".format(max_write_io_gap), "{}".format(avg_write_io_gap)])
     #col_values.append(getMinMaxAvg('write_io_inter_gap_time_min', 'write_io_inter_gap_time_max', 'total_write_io_inter_gap_time', 'total_time_metric_based_write_io_count'))
     t.add_row(col_values)
 
     print t
 
-def displayFlowInfoOverlay(json_out):
+def displayFlowInfoOverlay(json_out, ver=None):
     '''
     **********************************************************************************
     * Function: displayFlowInfoOverlay
@@ -1117,7 +1132,7 @@ def displayFlowInfoOverlay(json_out):
         cli.cli('terminal width 511')
         fcid2pwwn = getfcid2pwwn()
         pwwn2alias = getDalias()
-        max_init_alias_len,max_targ_alias_len = 22,19
+        max_init_alias_len, max_targ_alias_len = 22, 19
         
 
     col_names = ['VSAN|Initiator|Target|LUN', 'Avg IOPS', 'Avg Throughput', 'Avg ECT']
@@ -1125,7 +1140,7 @@ def displayFlowInfoOverlay(json_out):
     metrics = []
     cols = ''
     vals = ''
-    port,vsan,initiator,lun,target = '0/0','','','',''
+    port,vsan,initiator,lun,target = '0/0', '', '', '', ''
     totalread, totalwrite, readCount, writeCount = 0, 0, 0, 0
     sizeJson = len(json_out['values'])
     counter = 1
@@ -1158,10 +1173,18 @@ def displayFlowInfoOverlay(json_out):
                 if str(key) == 'total_write_io_time' and value != 0:
                     totalwrite = int(value)
                     continue
-                if str(key) == 'total_time_metric_based_read_io_count' and value != 0:
+                if (str(key) == 'total_time_metric_based_read_io_count' and
+                        value != 0 and ver != '8.3(1)'):
                     readCount = int(value)
                     continue
-                if str(key) == 'total_time_metric_based_write_io_count' and value != 0:
+                if (str(key) == 'total_time_metric_based_write_io_count' and
+                        value != 0 and ver != '8.3(1)'):
+                    writeCount = int(value)
+                    continue
+                if str(key) == 'total_read_io_count' and value != 0 and ver == '8.3(1)':
+                    readCount = int(value)
+                    continue
+                if str(key) == 'total_write_io_count' and value != 0 and ver == '8.3(1)':
                     writeCount = int(value)
                     continue
             counter = counter + 1
@@ -1171,7 +1194,7 @@ def displayFlowInfoOverlay(json_out):
             #adding sleep for more accurate results CSCvp66699
             time.sleep(1)
 
-        json_out = getData(args,misc=1)
+        json_out = getData(args, misc=1)
         counter = 1
 
     while counter <= sizeJson:
@@ -1179,7 +1202,7 @@ def displayFlowInfoOverlay(json_out):
         iopsR, thputR, ectR = 0, 0, 0
         iopsW, thputW, ectW = 0, 0, 0
         if args.minmax:
-            peak_read_iops,peak_write_iops,peak_read_thput,peak_write_thput,read_ect_min,read_ect_max,write_ect_min,write_ect_max = 0,0,0,0,0,0,0,0
+            peak_read_iops, peak_write_iops, peak_read_thput, peak_write_thput, read_ect_min, read_ect_max, write_ect_min, write_ect_max = 0, 0, 0, 0, 0, 0, 0, 0
         for key,value in json_out['values'][str(counter)].iteritems():
             if str(key) == 'port':
                 port = value
@@ -1214,10 +1237,18 @@ def displayFlowInfoOverlay(json_out):
             if str(key) == 'total_write_io_time' and value != 0:
                 totalwrite = int(value)
                 continue
-            if str(key) == 'total_time_metric_based_read_io_count' and value != 0:
+            if (str(key) == 'total_time_metric_based_read_io_count' and 
+                    value != 0 and ver != '8.3(1)'):
                 readCount = int(value)
                 continue
-            if str(key) == 'total_time_metric_based_write_io_count' and value != 0:
+            if (str(key) == 'total_time_metric_based_write_io_count' 
+                    and value != 0 and ver != '8.3(1)'):
+                writeCount = int(value)
+                continue
+            if str(key) == 'total_read_io_count' and value != 0 and ver == '8.3(1)':
+                readCount = int(value)
+                continue
+            if str(key) == 'total_write_io_count' and value != 0 and ver == '8.3(1)':
                 writeCount = int(value)
                 continue
             if str(key) ==  'peak_read_io_rate' and value != 0:
@@ -1249,13 +1280,13 @@ def displayFlowInfoOverlay(json_out):
                 + '::' + str(peak_read_iops) + '::' + str(peak_write_iops) + '::' + str(peak_read_thput) \
                 + '::' + str(peak_write_thput) + '::' + str(read_ect_min) + '::' + str(read_ect_max) \
                 + '::' + str(write_ect_min) + '::' + str(write_ect_max)
-            max_iops = max(peak_write_iops,peak_read_thput,max_iops)
+            max_iops = max(peak_write_iops, peak_read_thput, max_iops)
         else:
             itl_id = str(port) + '::' + str(vsan) + '::' + str(initiator) + '::' + str(target) + '::' + str(lun)
             try:
-                prev_totalread,prev_totalwrite,prev_readcount,prev_writecount = pre_a[itl_id].split('::')
+                prev_totalread, prev_totalwrite, prev_readcount, prev_writecount = pre_a[itl_id].split('::')
             except:
-                prev_totalread,prev_totalwrite,prev_readcount,prev_writecount = 0,0,0,0
+                prev_totalread,prev_totalwrite, prev_readcount,prev_writecount = 0, 0, 0, 0
             a = itl_id  + '::' + str(iopsR) + '::' + str(iopsW) + '::' + str(thputR) + '::' + str(thputW)
             diff_readCount = int(readCount)-int(prev_readcount)          
             diff_writeCount = int(writeCount)-int(prev_writecount)          
@@ -1264,11 +1295,11 @@ def displayFlowInfoOverlay(json_out):
             if diff_writeCount != 0:
                 ectW = abs(int(totalwrite) - int(prev_totalwrite)) / diff_writeCount
             a = a + '::' + str(ectR) + '::' + str(ectW)
-            max_iops = max(max_iops,iopsR,iopsW)
+            max_iops = max(max_iops, iopsR, iopsW)
         counter = counter + 1
         if args.alias:
-            ali_str,tisAliasValid = alias_maker(initiator,target,fcid2pwwn,pwwn2alias,vsan)
-            max_init_alias_len,max_targ_alias_len = [max(aa,bb) for aa,bb in zip([len(i) for i in ali_str.split('::')[1:]],(max_init_alias_len,max_targ_alias_len))]
+            ali_str,tisAliasValid = alias_maker(initiator, target, fcid2pwwn, pwwn2alias, vsan)
+            max_init_alias_len, max_targ_alias_len = [max(aa, bb) for aa, bb in zip([len(i) for i in ali_str.split('::')[1:]],(max_init_alias_len, max_targ_alias_len))]
             a = a + ali_str
         metrics.append(a)
         cols = str(vsan) + '|' + str(initiator) + '|' + str(target) + '|' + str(lun)
@@ -1279,7 +1310,7 @@ def displayFlowInfoOverlay(json_out):
         parts  = l.split('::')
 
         port = str(parts[0])
-        if port in port_metrics :
+        if port in port_metrics:
             port_metrics[port].append(l)
         else :
             port_metrics[port] = []
@@ -1291,24 +1322,24 @@ def displayFlowInfoOverlay(json_out):
         else:
             part_alias_h = 11
             part_alias_t = 12
-        col_names.append("{0:^{width}}".format('Initiator Device alias',width=max_init_alias_len))
-        col_names.append("{0:^{width}}".format('Target Device alias',width=max_targ_alias_len))
-        #col_names_desc.extend(['',''])
+        col_names.append("{0:^{width}}".format('Initiator Device alias', width=max_init_alias_len))
+        col_names.append("{0:^{width}}".format('Target Device alias', width=max_targ_alias_len))
+        # col_names_desc.extend(['',''])
 
     for port in sorted(port_metrics,key= lambda x: tuple([int(i) for i in x[2:].split('/')])):
         t = PrettyTable(col_names)
-        col_names_empty = ['', '', '', ''] if not args.minmax else ['','','','','']
+        col_names_empty = ['', '', '', ''] if not args.minmax else ['', '', '', '', '']
         if args.alias:
             col_names_empty.extend(['', ''])
-        #t.align = "l"
-        #aligning iops
+        # t.align = "l"
+        # aligning iops
         max_iops_len = len(str(max_iops))
 
-        col_names_desc = ['', ' {0:^{width}} | {1:^{width}} '.format('Read','Write',width=max_iops_len), '   Read   |   Write   ', '  Read   |   Write  ']
+        col_names_desc = ['', ' {0:^{width}} | {1:^{width}} '.format('Read', 'Write', width=max_iops_len), '   Read   |   Write   ', '  Read   |   Write  ']
         if args.minmax:
-            col_names_desc = ['', '{0:^{width}} | {1:^{width}} '.format('Read','Write',width=max_iops_len), '   Read   |   Write   ', '   Min   |    Max   ', '  Min    |    Max   ']
+            col_names_desc = ['', '{0:^{width}} | {1:^{width}} '.format('Read', 'Write', width=max_iops_len), '   Read   |   Write   ', '   Min   |    Max   ', '  Min    |    Max   ']
         if args.alias:
-            col_names_desc.extend(['',''])
+            col_names_desc.extend(['', ''])
         t.add_row(col_names_desc)
         t.add_row(col_names_empty)
 
@@ -1320,15 +1351,15 @@ def displayFlowInfoOverlay(json_out):
             parts  = l.split('::')
             cols = str(parts[1]) + '|' + str(parts[2]) + '|' + str(parts[3]) + '|' + str(parts[4])
             col_values.append(cols)
-            col_values.append(" {0:^{width}} | {1:^{width}} ".format(parts[5],parts[6],width=max_iops_len))
-            col_values.append(" {0:>10} | {1:^11} ".format(thput_conv(float(parts[7])),thput_conv(float(parts[8]))))
-            col_values.append(" {0:>7} | {1:>8} ".format(time_conv(float(parts[9])),time_conv(float(parts[10]))))
+            col_values.append(" {0:^{width}} | {1:^{width}} ".format(parts[5],parts[6], width=max_iops_len))
+            col_values.append(" {0:>10} | {1:^11} ".format(thput_conv(float(parts[7])), thput_conv(float(parts[8]))))
+            col_values.append(" {0:>7} | {1:>8} ".format(time_conv(float(parts[9])), time_conv(float(parts[10]))))
             if args.minmax:
-                col_values.append("{0:>9} |{1:>10}".format(time_conv(float(parts[11])),time_conv(float(parts[12]))))
+                col_values.append("{0:>9} |{1:>10}".format(time_conv(float(parts[11])), time_conv(float(parts[12]))))
             if args.alias:
-                t.align["{0:^{width}}".format('Initiator Device alias',width=max_init_alias_len)] = 'l'
-                t.align["{0:^{width}}".format('Target Device alias',width=max_targ_alias_len)] = 'l'
-                col_values.extend([str(parts[part_alias_h]),str(parts[part_alias_t])])
+                t.align["{0:^{width}}".format('Initiator Device alias', width=max_init_alias_len)] = 'l'
+                t.align["{0:^{width}}".format('Target Device alias', width=max_targ_alias_len)] = 'l'
+                col_values.extend([str(parts[part_alias_h]), str(parts[part_alias_t])])
             t.add_row(col_values)
 
         print t
@@ -1339,14 +1370,16 @@ def displayFlowInfoOverlay(json_out):
     if args.alias:
         cli.cli("terminal width {}".format(prev_wid))
 
-def displayErrorsOverlay(json_out,date):
+
+def displayErrorsOverlay(json_out, date, ver=None):
     '''
     **********************************************************************************
     * Function: displayErrorsOverlay
     *
-    * Input: It takes 2 arguments:
+    * Input: It takes 3 arguments:
     *          - json_out is the json data returned by switch as response for querry
     *          - date is String format system date
+    *          - ver is software version of switch
     * Action: Displays error statistics of a ITLs from json_out
     * Returns: None
     **********************************************************************************
@@ -1354,25 +1387,25 @@ def displayErrorsOverlay(json_out,date):
 
     if args.alias:
         prev_wid = getTermWid()
-        #setting termial width as 511 to display alias
+        # setting termial width as 511 to display alias
         cli.cli('terminal width 511')
         fcid2pwwn = getfcid2pwwn()
         pwwn2alias = getDalias()
         max_init_alias_len = 22
         max_targ_alias_len = 19
         
-        def alias_maker(init_fcid,targ_fcid,f2p,p2a,vsan):
+        def alias_maker(init_fcid, targ_fcid, f2p, p2a, vsan):
            iav = False
            alias_str = ''
            for fcid in [init_fcid,targ_fcid]:
                val = ' '
                if (str(fcid),int(vsan)) in f2p:
                    pwn = f2p[(str(fcid),int(vsan))]
-                   if pwn in p2a :
+                   if pwn in p2a:
                        iav = True
                        val=p2a[pwn]
                alias_str = alias_str+'::'+val
-           return [alias_str,iav]
+           return [alias_str, iav]
 
     displaydateFlag = False
     col_names = ['VSAN|Initiator|Target|LUN', 'Total SCSI Failures', 'Total FC Aborts']
@@ -1381,7 +1414,7 @@ def displayErrorsOverlay(json_out,date):
     metrics = []
     cols = ''
     vals = ''
-    vsan,initiator,lun,target = '','','',''
+    vsan,initiator,lun,target = '', '', '', ''
     max_failures,max_aborts=0,0
     sizeJson = len(json_out['values'])
     counter = 1
@@ -1436,18 +1469,18 @@ def displayErrorsOverlay(json_out,date):
         parts  = l.split('::')
 
         port = str(parts[0])
-        if port in port_metrics :
+        if port in port_metrics:
             port_metrics[port].append(l)
-        else :
+        else:
             port_metrics[port] = []
             port_metrics[port].append(l)
 
-    if args.alias :
+    if args.alias:
         col_names.append("{0:^{width}}".format('Initiator Device alias',width=max_init_alias_len))
         col_names.append("{0:^{width}}".format('Target Device alias',width=max_targ_alias_len))
-        col_names_desc.extend(['',''])
+        col_names_desc.extend(['', ''])
 
-    #aligning o/p
+    # aligning o/p
     failure_width = len(str(max_failures))+2
     abort_width = len(str(max_aborts))+2
 
@@ -1456,7 +1489,7 @@ def displayErrorsOverlay(json_out,date):
         t.add_row(col_names_desc)
         col_names_empty = ['', '', '', '', ''] if args.alias else ['', '', '']
         t.add_row(col_names_empty)
-        #t.align = "l"
+        # t.align = "l"
 
         print "\n Interface " + port
         for l in port_metrics[port]:
@@ -1472,12 +1505,14 @@ def displayErrorsOverlay(json_out,date):
             t.add_row(col_values)
         print t
 
-def displayNpuloadEvaluation(json_out):
+
+def displayNpuloadEvaluation(json_out, ver=None):
     '''
     **********************************************************************************
     * Function: displayNpuloadEvaluation
     *
     * Input: json_out is the json data returned by switch as response for querry
+    *        ver is software version of switch
     * Action: Enable Analytics on  Analytics Capable ports selected via args global object , collect NpuLoad added by each port and disable analytics on that port
     * Returns: None
     **********************************************************************************
@@ -1491,7 +1526,7 @@ def displayNpuloadEvaluation(json_out):
     global working_interface
     interface_list_flag = False
 
-    signal.signal(signal.SIGHUP,sig_hup_handler)
+    signal.signal(signal.SIGHUP, sig_hup_handler)
     
     if interface_list:
         interface_list_flag = True
@@ -1559,11 +1594,11 @@ def displayNpuloadEvaluation(json_out):
             if sig_hup_flag == 'Armed':
                 clear_previous_lines(pline)
                 pline = 0
-        if sig_hup_flag in [None,'Armed']:
-            print 'Evaluating interface {} ({} out of {} interfaces)'.format(inte,int_iterator,int_count)
+        if sig_hup_flag in [None, 'Armed']:
+            print 'Evaluating interface {} ({} out of {} interfaces)'.format(inte, int_iterator, int_count)
             pline = 1
         else:
-            cli.cli('logit ShowAnalytics: Evaluating interface {} ({} out of {} interfaces)'.format(inte,int_iterator,int_count))
+            cli.cli('logit ShowAnalytics: Evaluating interface {} ({} out of {} interfaces)'.format(inte, int_iterator, int_count))
         if not interface_list_flag:
             traffic_flag,err_out= is_traffic_running(inte)
             if not traffic_flag:
@@ -1580,7 +1615,7 @@ def displayNpuloadEvaluation(json_out):
         working_interface = inte
         time.sleep(10)
         mod = inte.strip().split('/')[0][2:]
-        status,sdb_out = cmd_exc("sh analytics port-sampling module {} | i '{}'".format(mod,inte))
+        status,sdb_out = cmd_exc("sh analytics port-sampling module {} | i '{}'".format(mod, inte))
         fail_flag = False
 
         if inte in sdb_out:
@@ -1608,26 +1643,26 @@ def displayNpuloadEvaluation(json_out):
                   print_status([error_data])
                   fail_flag = True
 
-        if fail_flag :
+        if fail_flag:
             cmd = 'configure terminal ; interface {} ; no analytics type fc-all ; sh clock'.format(inte)
             status,out = cmd_exc(cmd)
             if not status:
                 print_status([out, 'Unable to disable analytics on interface {}'.format(inte)])
             working_interface = None
             continue
-        #print 'port in SDB time {}'.format(time.ctime())
-        #sampling_start_time = datetime.datetime.strptime(sdb_out.split('*')[-1].strip(),'%m/%d/%y %H:%M:%S')
+        # print 'port in SDB time {}'.format(time.ctime())
+        # sampling_start_time = datetime.datetime.strptime(sdb_out.split('*')[-1].strip(),'%m/%d/%y %H:%M:%S')
         current_time = datetime.datetime.now()
         time_drift = current_time - sampling_start_time
         time_drift = time_drift.seconds
         if time_drift < 30:
             sleep_time = 31 - time_drift
             time.sleep(sleep_time)
-        data_scsi,data_nvme = None,None
-        #print 'SCSI Analysis start time {}'.format(datetime.datetime.now())
-        data_scsi = getData(args,(inte,'scsi'))
-        #print 'SCSI Analysis end time {}'.format(datetime.datetime.now())
-        data_nvme = getData(args,(inte,'nvme'))
+        data_scsi, data_nvme = None, None
+        # print 'SCSI Analysis start time {}'.format(datetime.datetime.now())
+        data_scsi = getData(args, (inte, 'scsi'), ver)
+        # print 'SCSI Analysis end time {}'.format(datetime.datetime.now())
+        data_nvme = getData(args, (inte, 'nvme'), ver)
         #print 'Nvme Analysis end time {}'.format(datetime.datetime.now())
         cmd = 'configure terminal ; interface {} ; no analytics type fc-all ; sh clock'.format(inte)
         status,out = cmd_exc(cmd)
@@ -1635,9 +1670,9 @@ def displayNpuloadEvaluation(json_out):
             print_status([out, 'Unable to disable analytics on interface {}'.format(inte)])
         working_interface = None
         end_time = out.split('\n')[-2].split(' ')[0][:-4]
-        itl_count,itn_count,scsi_iops,nvme_iops = 0,0,0,0
+        itl_count, itn_count, scsi_iops,nvme_iops = 0, 0, 0, 0
         data = ''
-        if data_scsi != None:
+        if data_scsi is not None:
             for key,value in data_scsi['values']['1'].iteritems():
                 if key == 'sampling_start_time':
                     scsi_sampling_start_time = int(value)
@@ -1661,7 +1696,7 @@ def displayNpuloadEvaluation(json_out):
             scsi_iops = scsi_iops/5000.0
             #print 'SCSI Window {}   {}'.format(start_time,end_time)
 
-        if data_nvme != None:
+        if data_nvme is not None:
             for key,value in data_nvme['values']['1'].iteritems():
                 if key == 'sampling_start_time':
                     start_time = datetime.datetime.fromtimestamp(int(value)).strftime("%H:%M:%S")
@@ -1683,7 +1718,7 @@ def displayNpuloadEvaluation(json_out):
                     continue
 
             nvme_iops = nvme_iops/5000.0
-            #print 'Nvme Window {}   {}'.format(start_time,end_time)
+            # print 'Nvme Window {}   {}'.format(start_time,end_time)
  
         data = inte + '-' + str(itl_count) + '-' + str(scsi_iops)\
         + '-' + str(itn_count) + '-' + str(nvme_iops)\
@@ -1701,7 +1736,7 @@ def displayNpuloadEvaluation(json_out):
     if sig_hup_flag not in [None,'Armed']:
         file_name = '/bootflash/'+sig_hup_flag
         try:
-            file_handler = open(file_name,'w+')
+            file_handler = open(file_name, 'w+')
         except Exception as e:
             cli.cli('logit ShowAnalytics: Unable to save output in bootflash with name {} as {}'.format(sig_hup_flag,e))
             sys.exit(1)
@@ -1710,35 +1745,35 @@ def displayNpuloadEvaluation(json_out):
     for mod in mod_matrix:
         mod_iops_list = []
         mod_flow_list = []
-        if mod  < 50 :
+        if mod  < 50:
             if  sig_hup_flag not in [None,'Armed']:
                 file_handler.write("Module {}".format(mod))
             else:
                 print "Module {}".format(mod)
-        m_itl_count,m_scsi_iops,m_itn_count,m_nvme_iops = 0,0,0,0
+        m_itl_count, m_scsi_iops, m_itn_count, m_nvme_iops = 0, 0, 0, 0
 
         t= PrettyTable(['',' SCSI ', ' NVMe ', ' Total ','SCSI','NVMe','Total','Start Time','End Time'],headers_misc=[['above',['Interface', 'ITL/N Count',' NPU Load %','Analyis','Analysis'],[1,3,3,1,1]]])
 
         for port_metrix in mod_matrix[mod]:
             tport,t_itl_count,t_scsi_iops,t_itn_count,t_nvme_iops,t_start_time,t_end_time = port_metrix.split('-')
-            t_itl_count,t_itn_count = [int(i) for i in [t_itl_count,t_itn_count]]
-            t_scsi_iops,t_nvme_iops = [float(i) for i in [t_scsi_iops,t_nvme_iops]]
+            t_itl_count, t_itn_count = [int(i) for i in [t_itl_count,t_itn_count]]
+            t_scsi_iops, t_nvme_iops = [float(i) for i in [t_scsi_iops,t_nvme_iops]]
             m_itl_count += t_itl_count
-            m_scsi_iops += round(t_scsi_iops,1)
+            m_scsi_iops += round(t_scsi_iops, 1)
             m_itn_count += t_itn_count
-            m_nvme_iops += round(t_nvme_iops,1)
+            m_nvme_iops += round(t_nvme_iops, 1)
             port_flow_count = t_itl_count + t_itn_count
-            port_iops_count = round(t_scsi_iops,1) + round(t_nvme_iops,1)
+            port_iops_count = round(t_scsi_iops, 1) + round(t_nvme_iops, 1)
             mod_iops_list.append(port_iops_count)
             mod_flow_list.append(port_flow_count)
             
             t.add_row([tport,t_itl_count,t_itn_count,port_flow_count,'{:.1f}'.format(t_scsi_iops),'{:.1f}'.format(t_nvme_iops),'{:.1f}'.format(port_iops_count),t_start_time,t_end_time])
         t.add_row(col_empty)
         t.add_row(['*Total',m_itl_count,m_itn_count,(m_itl_count+m_itn_count),'{:.1f}'.format(m_scsi_iops),'{:.1f}'.format(m_nvme_iops),'{:.1f}'.format(m_scsi_iops+m_nvme_iops),'',''])
-        if sig_hup_flag not in [None,'Armed']:
+        if sig_hup_flag not in [None, 'Armed']:
             file_handler.write(str(t.get_string()))
             if not interface_list_flag:
-                file_handler.write("\nRecommended port sampling size: {}".format(calculate_max_sample_window(mod_iops_list,mod_flow_list)))
+                file_handler.write("\nRecommended port sampling size: {}".format(calculate_max_sample_window(mod_iops_list, mod_flow_list)))
         else:
             print t
             if not interface_list_flag:
@@ -1761,93 +1796,94 @@ def displayNpuloadEvaluation(json_out):
     cli.cli('logit ShowAnalytics: Task Completed')    
 
 
-def displayVsanOverlay(json_out) :
+def displayVsanOverlay(json_out, ver=None) :
     '''
     **********************************************************************************
     * Function: displayVsanOverlay
     *
     * Input: json_out is the json data returned by switch as response for querry
+    *         ver is software version of the switch
     * Action: Displays per vsan throughput for the interface pointed by global args object
     * Returns: None
     **********************************************************************************
     '''
   
-    #have to write that
+    # have to write that
     metrics = {}
     sizeJson = len(json_out['values'])
     counter = 1
     while counter <= sizeJson:
-        port,vsan,read,write,rios,wios,rir,wir = '','','','','','','',''
+        port, vsan, read, write, rios, wios, rir, wir = '', '', '', '', '', '', '', ''
         for key,value in json_out['values'][str(counter)].iteritems():
             if str(key) == 'port':
                 port = str(value)
             elif str(key) == 'vsan':
                 vsan = int(value)
-            elif str(key) == 'read_io_bandwidth' :
+            elif str(key) == 'read_io_bandwidth':
                 read = int(value)
-            elif str(key) == 'write_io_bandwidth' :
+            elif str(key) == 'write_io_bandwidth':
                 write = int(value)
             elif str(key) == 'read_io_size_min':
                 rios = int(value)
-            elif str(key) == 'write_io_size_min' :
+            elif str(key) == 'write_io_size_min':
                 wios = int(value)
-            elif str(key) == 'read_io_rate' :
+            elif str(key) == 'read_io_rate':
                 rir = int(value)
-            elif str(key) == 'write_io_rate' :
+            elif str(key) == 'write_io_rate':
                 wir = int(value)
-            else :
+            else:
                 pass
          
         counter += 1
-        if port not in metrics.keys() :
+        if port not in metrics.keys():
             metrics[port]={}
-        metrics[port][vsan] = read_write_stats(read,write,rios,wios,rir,wir)
+        metrics[port][vsan] = read_write_stats(read, write, rios, wios, rir, wir)
 
     port_metrics = {}
     f_ports = None
     global interface_list
-    if interface_list == None :
+    if interface_list is None:
         eports_to_consider = getAnalyticsEnabledPorts()
-        if args.interface == None :
+        if args.interface is None:
             f_ports = getPureFPorts()
     else :
         eports_to_consider = interface_list[1]
         port_metrics[interface_list[0]] = {} 
 
     considered_port_count = 0
-    for port in eports_to_consider :
-        if port in metrics.keys() :
-            if f_ports != None and (port in f_ports) :
+    for port in eports_to_consider:
+        if port in metrics.keys():
+            if f_ports is not None and (port in f_ports):
                 port_metrics[port] = metrics[port]
                 continue
             enabled_vsans = getVsansPerEPort(port)
-            if interface_list == None :
+            if interface_list is None:
                 port_metrics[port] = metrics[port]
                 port1 = port
-            else :
-                for vsan in metrics[port].keys() :
+            else:
+                for vsan in metrics[port].keys():
                     a,b = metrics[port][vsan]
-                    if vsan in port_metrics[interface_list[0]].keys() :
-                        c,d = port_metrics[interface_list[0]][vsan]
-                        port_metrics[interface_list[0]][vsan] = [(a+c),(b+d)]
-                    else :
-                        port_metrics[interface_list[0]][vsan] = [a,b]
-                if considered_port_count < ( len(interface_list[1]) -1 ) :
+                    if vsan in port_metrics[interface_list[0]].keys():
+                        c, d = port_metrics[interface_list[0]][vsan]
+                        port_metrics[interface_list[0]][vsan] = [(a+c), (b+d)]
+                    else:
+                        port_metrics[interface_list[0]][vsan] = [a, b]
+                if considered_port_count < ( len(interface_list[1]) -1 ):
                     considered_port_count += 1
                     continue
-                else :
+                else:
                     port1 = interface_list[0]
                 
-            evsan = [ int(i) for i in enabled_vsans if int(i) not in [int(j) for j in  port_metrics[port1].keys()] ]
-            if evsan != [] :
-                for vsan in evsan :
+            evsan = [int(i) for i in enabled_vsans if int(i) not in [int(j) for j in  port_metrics[port1].keys()]]
+            if evsan != []:
+                for vsan in evsan:
                     port_metrics[port1][vsan] = [0,0]
 
-    col_names = ['','Read','Write','Total']
-    col_names_desc = ['','(MBps)','(MBps)','(MBps)']
+    col_names = ['', 'Read', 'Write', 'Total']
+    col_names_desc = ['', '(MBps)', '(MBps)', '(MBps)']
 
  
-    for port in sorted(port_metrics,key= lambda x: tuple([int(i) for i in x[2:].split('/')]) if not x.startswith('port-channel') else int(x[12:])):
+    for port in sorted(port_metrics, key= lambda x: tuple([int(i) for i in x[2:].split('/')]) if not x.startswith('port-channel') else int(x[12:])):
         if port_metrics[port] == {}:
             if interface_list:
                 print "\n\t Table is empty\n"
@@ -1855,30 +1891,32 @@ def displayVsanOverlay(json_out) :
             else:
                 continue
                 
-        t = PrettyTable(col_names,headers_misc=[['above',['VSAN','Throughput (4s avg)'],[1,3]],['below',['','(MBps)','(MBps)','(MBps)'],[1,1,1,1]]])
-        #t.add_row(col_names_desc)
+        t = PrettyTable(col_names,headers_misc=[['above', ['VSAN', 'Throughput (4s avg)'], [1, 3]], ['below', ['', '(MBps)', '(MBps)', '(MBps)'], [1, 1, 1, 1]]])
+        # t.add_row(col_names_desc)
         t.align = "l"
-        for vsan in sorted(port_metrics[port].keys()) :
+        for vsan in sorted(port_metrics[port].keys()):
             col = []
             col.append("%d"%int(vsan))
             port_metrics[port][vsan] = [float(i)/1000000 for i in port_metrics[port][vsan]]
-            col.append("{:.1f}".format(port_metrics[port][vsan][0]))
-            col.append("{:.1f}".format(port_metrics[port][vsan][1]))
+            col.append("{0:.1f}".format(port_metrics[port][vsan][0]))
+            col.append("{0:.1f}".format(port_metrics[port][vsan][1]))
             tmp_tb = float(port_metrics[port][vsan][0]) + float(port_metrics[port][vsan][1])
-            col.append("{:.1f}".format(tmp_tb))
+            col.append("{0:.1f}".format(tmp_tb))
             t.add_row(col)
         print "\n Interface " + port
         print t
     print 'Note: This data is only for SCSI\n'
 
-def displayTop(args,json_out,return_vector) :
+
+def displayTop(args,json_out, return_vector, ver=None):
     '''
     **********************************************************************************
     * Function: displayTop
     *
-    * Input: It takes 2 input 
+    * Input: It takes 3 input 
     *           - json_out is the json data returned by switch as response for querry
-    *           - return_vector is the list of 3 elements described as [ <lines to be deleted before printing new iteration result> <time to sleep between 2 iteration> <data from previous iteration> ]
+    *           - return_vector is the list of 3 elements described as [<lines to be deleted before printing new iteration result> <time to sleep between 2 iteration> <data from previous iteration>]
+    *           - ver is software version of switch
     * Action: Displays top 10 ITLs based on the key provided via args global object, by default key is ECT
     * Returns: return_vector is the same one as described in Input
     **********************************************************************************
@@ -1888,24 +1926,24 @@ def displayTop(args,json_out,return_vector) :
     global error
     global error_flag
 
-    if args.progress :
+    if args.progress:
         sys.stdout.write('#')
         sys.stdout.flush()
 
     if args.alias:
         prev_wid = getTermWid()
-        #setting termial width as 511 to display alias
+        # setting termial width as 511 to display alias
         cli.cli('terminal width 511')
         fcid2pwwn = getfcid2pwwn()
         pwwn2alias = getDalias()
-        max_init_alias_len,max_targ_alias_len = 22,19
+        max_init_alias_len, max_targ_alias_len = 22, 19
 
     line_count = 0
     str1 = None
     str2 = None
     if error_flag:
         str1 = error['getData_str']
-        if 'empty'  in str1 or str1 == '' :
+        if 'empty'  in str1 or str1 == '':
             str1 = None
         else:
             line_count += error['line_count']
@@ -1914,45 +1952,49 @@ def displayTop(args,json_out,return_vector) :
     json_out1 = getData(args,1)
     if error_flag:
         str2 = error['getData_str']
-        if 'empty' in str2 or str2 == '' :
+        if 'empty' in str2 or str2 == '':
             str2 = None
         else:
             line_count += error['line_count']
             line_count += 1
-    #print json_out
-    #print return_vector[0]
+    # print json_out
+    # print return_vector[0]
 
-    if json_out == ' ' :
-        if json_out1 == None :
+    if json_out == ' ':
+        if json_out1 is None:
             tmp_clr_line_count = 2
-            if return_vector[0] != None:
+            if return_vector[0] is not None:
                 time.sleep(return_vector[1])
                 clear_previous_lines(return_vector[0])
             else:
                 clear_previous_lines(1)
             print
             print datetime.datetime.now()
-            if str1 != None:
+            if str1 is not None:
                 print
                 print str1
-            if (str2 != None) and (str1 != str2):
+            if (str2 is not None) and (str1 != str2):
                 print 
                 print str2
-            if str1 == str2 and (str1 != None):
-                line_count -=(error['line_count']+1)
+            if str1 == str2 and (str1 is not None):
+                line_count -= (error['line_count']+1)
             tmp_clr_line_count += line_count
             if str1 == str2 == None:
                 print "\n\t Table is empty\n"
                 tmp_clr_line_count = 5
-            return [tmp_clr_line_count,return_vector[1],'']
+            return [tmp_clr_line_count, return_vector[1], '']
         else :
             json_out = json_out1
             json_out1 = None
 
     #clear_previous_lines(1)
-    if args.progress :
+    if args.progress:
         sys.stdout.write('##')
         sys.stdout.flush()
+        
+    tric,twic = 'total_time_metric_based_read_io_count','total_time_metric_based_write_io_count'
+    if ver == '8.3(1)':
+        tric,twic = 'total_read_io_count','total_write_io_count'
    
     metrics = []
     pdata = {}
@@ -1962,21 +2004,21 @@ def displayTop(args,json_out,return_vector) :
         while counter <= sizeJson:
     
             iter_itl = json_out['values'][str(counter)]
-            port,initiator,target,lun = [str(iter_itl.get(unicode(i),'')) for i in ['port','initiator_id','target_id','lun']]
+            port, initiator, target, lun = [str(iter_itl.get(unicode(i), '')) for i in ['port', 'initiator_id', 'target_id', 'lun']]
             vsan = str(iter_itl.get(u'vsan',0))
-            read,write,rb,wb,totalread,totalwrite,readCount,writeCount = [int(iter_itl.get(unicode(i),0)) for i in ['read_io_rate','write_io_rate','read_io_bandwidth','write_io_bandwidth','total_read_io_time','total_write_io_time','total_time_metric_based_read_io_count','total_time_metric_based_write_io_count']]
+            read,write,rb,wb,totalread,totalwrite,readCount,writeCount = [int(iter_itl.get(unicode(i),0)) for i in ['read_io_rate', 'write_io_rate', 'read_io_bandwidth', 'write_io_bandwidth', 'total_read_io_time', 'total_write_io_time', tric, twic]]
     
             counter += 1
             itl_id = port + '::' + vsan + '::' + initiator + '::' + target + '::' + lun
-            if args.key == None or args.key == 'IOPS' :
+            if args.key == None or args.key == 'IOPS':
                 a = itl_id + '::' + str(read) + '::' + str(write) + '::' + str(read+write)
             elif args.key == 'THPUT':
                 a = itl_id + '::' + str(rb) + '::' +str(wb) + '::' +str(rb+wb)
             elif args.key == 'ECT':
                 pdata[itl_id] = str(readCount) + '::' +str(totalread) + '::' + str(writeCount) + '::' + str(totalwrite)
-                ectR,ectW = 0,0
+                ectR, ectW = 0, 0
                 if return_vector[2] != None and itl_id in return_vector[2].keys():
-                    rc,tr,wc,tw = [int(i) for i in return_vector[2][itl_id].split('::')]
+                    rc, tr, wc, tw = [int(i) for i in return_vector[2][itl_id].split('::')]
                     ectR = abs((tr-totalread)/(rc-readCount)) if rc != readCount else 0
                     ectW = abs((tw-totalwrite)/(wc-writeCount)) if wc != writeCount else 0
                 else:
@@ -1986,94 +2028,94 @@ def displayTop(args,json_out,return_vector) :
                 a = itl_id + '::' + str(ectR) + '::' + str(ectW) + '::' +str(ectW+ectR)
             if args.alias:
                 ali_str,tisAliasValid = alias_maker(initiator,target,fcid2pwwn,pwwn2alias,vsan)
-                max_init_alias_len,max_targ_alias_len = [max(aa,bb) for aa,bb in zip([len(i) for i in ali_str.split('::')[1:]],(max_init_alias_len,max_targ_alias_len))]
+                max_init_alias_len, max_targ_alias_len = [max(aa, bb) for aa, bb in zip([len(i) for i in ali_str.split('::')[1:]], (max_init_alias_len, max_targ_alias_len))]
                 a = a + ali_str
             metrics.append(a)
 
         json_out = None
 
-        if json_out1 != None :
+        if json_out1 is not None:
             json_out = json_out1
             json_out1 = None
 
-    #clear_previous_lines(1)
-    if args.progress :
+    # clear_previous_lines(1)
+    if args.progress:
         sys.stdout.write('###')
         sys.stdout.flush()
     out_metrics = []
     sTep = 1000
     lm = len(metrics)
-    if lm > sTep :
-        d_l,r_l = lm/sTep,lm%sTep
-        for c_li in xrange(1,d_l+1) :
-            out_metrics.extend(sorted(metrics[(c_li-1)*sTep:(c_li*sTep)],key=lambda st : int(st.split('::')[7]),reverse=True)[:top_count])
-        if args.progress :
-            #sys.stdout.write("###%d"%c_li)
-            #sys.stdout.flush()
+    if lm > sTep:
+        d_l, r_l = lm/sTep, lm % sTep
+        for c_li in xrange(1, d_l+1):
+            out_metrics.extend(sorted(metrics[(c_li-1)*sTep:(c_li*sTep)], key=lambda st: int(st.split('::')[7]), reverse=True)[:top_count])
+        if args.progress:
+            # sys.stdout.write("###%d"%c_li)
+            # sys.stdout.flush()
             pass
-        out_metrics.extend(sorted(metrics[d_l*sTep:lm+1],key=lambda st : int(st.split('::')[7]),reverse=True)[:top_count])
-        port_metrics = sorted(out_metrics,key=lambda st : int(st.split('::')[7]),reverse=True)[:top_count]
-    else :
-        port_metrics = sorted(metrics,key=lambda st : int(st.split('::')[7]),reverse=True)[:top_count]
+        out_metrics.extend(sorted(metrics[d_l*sTep:lm+1], key=lambda st: int(st.split('::')[7]), reverse=True)[:top_count])
+        port_metrics = sorted(out_metrics, key=lambda st: int(st.split('::')[7]), reverse=True)[:top_count]
+    else:
+        port_metrics = sorted(metrics, key=lambda st : int(st.split('::')[7]), reverse=True)[:top_count]
     #clear_previous_lines(1)
-    if args.progress :
+    if args.progress:
         sys.stdout.write('####')
         sys.stdout.flush()
     if args.key == None or args.key == 'IOPS':
-        col_names = ["PORT" , "VSAN|Initiator|Target|LUN" , "Avg IOPS"]
+        col_names = ["PORT", "VSAN|Initiator|Target|LUN", "Avg IOPS"]
     elif args.key == 'THPUT': 
-        col_names = ["PORT" , "VSAN|Initiator|Target|LUN" , "Avg Throughput"]
+        col_names = ["PORT", "VSAN|Initiator|Target|LUN", "Avg Throughput"]
     elif args.key == 'ECT':
-        col_names = ["PORT","VSAN|Initiator|Target|LUN" ,"ECT"]
+        col_names = ["PORT", "VSAN|Initiator|Target|LUN", "ECT"]
     if args.alias:
-        col_names.append("{0:^{width}}".format('Initiator Device alias',width=max_init_alias_len))
-        col_names.append("{0:^{width}}".format('Target Device alias',width=max_targ_alias_len))
+        col_names.append("{0:^{width}}".format('Initiator Device alias', width=max_init_alias_len))
+        col_names.append("{0:^{width}}".format('Target Device alias', width=max_targ_alias_len))
     t = PrettyTable(col_names)
     line_count = 4
     if args.key == 'THPUT':
         t = PrettyTable(col_names)
-        row_val = [" "," "," Read   |   Write"]
+        row_val = [" ", " ", " Read   |   Write"]
     else:
-        row_val = [" "," ","Read  |  Write"]
+        row_val = [" ", " ", "Read  |  Write"]
 
     if args.alias:
-        row_val.extend(["",""])
+        row_val.extend(["", ""])
 
     t.add_row(row_val)
 
-    for data in port_metrics :
+    for data in port_metrics:
         if args.alias:
-            p,v,i,ta,l,r,w,to,ini_ali,tar_ali = data.split('::')
+            p, v, i, ta, l, r, w, to, ini_ali, tar_ali = data.split('::')
         else:
-            p,v,i,ta,l,r,w,to = data.split('::')
+            p, v, i, ta, l, r, w, to = data.split('::')
         if args.key == 'THPUT':
-            col_values = [p,"{}|{}|{}|{}".format(v,i,ta,l),"{0:^11}| {1:^10}".format(thput_conv(r),thput_conv(w))]
+            col_values = [p, "{}|{}|{}|{}".format(v, i, ta, l), "{0:^11}| {1:^10}".format(thput_conv(r), thput_conv(w))]
         elif args.key == 'ECT':
-            col_values = [p,"{}|{}|{}|{}".format(v,i,ta,l),"{0:>8} |{1:^10}".format(time_conv(r),time_conv(w))]
+            col_values = [p, "{}|{}|{}|{}".format(v, i, ta, l), "{0:>8} |{1:^10}".format(time_conv(r), time_conv(w))]
         else:
-            col_values = [p,"{}|{}|{}|{}".format(v,i,ta,l),"{0:^8}|{1:^8}".format(r,w)]
+            col_values = [p, "{}|{}|{}|{}".format(v, i, ta, l), "{0:^8}|{1:^8}".format(r, w)]
 
         if args.alias:
-            t.align["{0:^{width}}".format('Initiator Device alias',width=max_init_alias_len)] = 'l'
-            t.align["{0:^{width}}".format('Target Device alias',width=max_targ_alias_len)] = 'l'
-            col_values.extend([str(ini_ali),str(tar_ali)])
+            t.align["{0:^{width}}".format('Initiator Device alias', width=max_init_alias_len)] = 'l'
+            t.align["{0:^{width}}".format('Target Device alias', width=max_targ_alias_len)] = 'l'
+            col_values.extend([str(ini_ali), str(tar_ali)])
 
         t.add_row(col_values)
         line_count += 1
     
-    if args.progress :
+    if args.progress:
         sys.stdout.write('')
         sys.stdout.flush()
-    if return_vector[0] != None :
+    if return_vector[0] is not None:
         time.sleep(return_vector[1])
         clear_previous_lines(return_vector[0])
-    line_count +=3
+    line_count += 5
     if return_vector == [None, 2, None]:
         clear_previous_lines(1)
-    if str1 :
+    if str1:
         print
         print str1
-    if str2 :
+    if str2:
         print
         print str2
     print
@@ -2082,18 +2124,19 @@ def displayTop(args,json_out,return_vector) :
     print t
     print
     if args.key == 'ECT':
-        return [line_count,return_vector[1],pdata]
+        return [line_count, return_vector[1], pdata]
     else :
-        return [line_count , return_vector[1] , '']
+        return [line_count, return_vector[1], '']
 
-def displayOutstandingIo(json_out,return_vector) :
+def displayOutstandingIo(json_out, return_vector, ver=None):
     '''
     **********************************************************************************
     * Function: displayOutstandingIo
     *
-    * Input: It takes 2 input 
+    * Input: It takes 3 input 
     *           - json_out is the json data returned by switch as response for querry
-    *           - return_vector is the list of 3 elements described as [ <lines to be deleted before printing new iteration result> <time to sleep between 2 iteration> <data from previous iteration> ]
+    *           - return_vector is the list of 3 elements described as [ <lines to be deleted before printing new iteration result> <time to sleep between 2 iteration> <data from previous iteration>]
+    *           - ver is software version of switch
     * Action: Displays Outstanding io per interface 
     * Returns: return_vector is the same one as described in Input
     **********************************************************************************
@@ -2103,9 +2146,9 @@ def displayOutstandingIo(json_out,return_vector) :
 
     f_ports = getPureFPorts()
     port = args.interface
-    if port not in f_ports :
+    if port not in f_ports:
         print "--outstanding-io is only supported on F Ports"
-        return [None , return_vector[1] , None]
+        return [None, return_vector[1], None]
         exit()
  
     line_count = 0
@@ -2120,7 +2163,7 @@ def displayOutstandingIo(json_out,return_vector) :
             line_count += 1
 
     col_names = ["Initiator|Target|LUN", "Outstanding IO"]
-    json_out1 = getData(args,1)
+    json_out1 = getData(args, 1, ver)
     #print json_out
 
     if error_flag:
@@ -2131,8 +2174,8 @@ def displayOutstandingIo(json_out,return_vector) :
             line_count += error['line_count']
             line_count += 1
 
-    if json_out == ' ' :
-        if json_out1 == None :
+    if json_out == ' ':
+        if json_out1 is None:
             tmp_clr_line_count = 2
             if return_vector[0] != None:
                 time.sleep(return_vector[1])
@@ -2141,19 +2184,19 @@ def displayOutstandingIo(json_out,return_vector) :
                 clear_previous_lines(1)
             print
             print datetime.datetime.now()
-            if str1 != None:
+            if str1 is not None:
                 print
                 print str1
-            if (str2 != None) and (str1 != str2):
+            if (str2 is not None) and (str1 != str2):
                 print 
                 print str2
             if str1 == str2 and str1 != None:
-                line_count -=(error['line_count']+1)
+                line_count -= (error['line_count']+1)
             tmp_clr_line_count += line_count
             if str1 == str2 == None:
                 print "\n\t Table is empty\n"
                 tmp_clr_line_count = 5
-            return [tmp_clr_line_count,return_vector[1],'']
+            return [tmp_clr_line_count, return_vector[1], '']
         else :
             json_out = json_out1
             json_out1 = None
@@ -2164,9 +2207,9 @@ def displayOutstandingIo(json_out,return_vector) :
         counter = 1
         while counter <= sizeJson:
             iter_itl = json_out['values'][str(counter)]
-            port,initiator,target,lun = [str(iter_itl.get(unicode(i),'')) for i in ['port','initiator_id','target_id','lun']]
+            port, initiator, target, lun = [str(iter_itl.get(unicode(i), '')) for i in ['port', 'initiator_id', 'target_id', 'lun']]
             vsan = str(iter_itl.get(u'vsan',0))
-            read,write = [int((iter_itl.get(unicode(i),0))) for i in ['active_io_read_count','active_io_write_count']]
+            read, write = [int((iter_itl.get(unicode(i), 0))) for i in ['active_io_read_count', 'active_io_write_count']]
             counter += 1
             a = str(port) + '::' + str(vsan) + '::' + str(initiator) + '::' + str(target) + '::' + str(lun) \
                 + '::' + str(read) + '::' + str(write)
@@ -2174,50 +2217,50 @@ def displayOutstandingIo(json_out,return_vector) :
             metrics.append(a)
         json_out = None
 
-        if json_out1 != None :
+        if json_out1 is not None:
             json_out = json_out1
             json_out1 = None
 
     port_metrics = metrics
 
     if not return_vector[0]:
-        flogis=[str(i) for i in flogi(cli.cli("sh flogi database interface %s | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT"%port)).get_fcids(port) ]
-        i,ta = [fcid_Normalizer(z) for z in port_metrics[0].split('::')[2:4] ]
+        flogis=[str(i) for i in flogi(cli.cli("sh flogi database interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT".format(port))).get_fcids(port)]
+        i, ta = [fcid_Normalizer(z) for z in port_metrics[0].split('::')[2:4]]
     
         fcns_type = None
         try :
-            if i in flogis :
+            if i in flogis:
                 fcns_type = 'Initiator'
-            elif ta in flogis : 
+            elif ta in flogis: 
                 fcns_type = 'Target'
-            else :
+            else:
                 fcns_type = 'NA'
-        except :
+        except:
             pass
         vSan =  metrics[0].split('::')[1]
-        pdata = "\n Interface : %s  VSAN : %s  FCNS_type : %s"%(port,vSan,fcns_type)
+        pdata = "\n Interface : {0}  VSAN : {1}  FCNS_type : {0}".format(port, vSan, fcns_type)
         print pdata
 
     t = PrettyTable(col_names)
-    t.add_row([" ","Read | Write"])
-    t.add_row([" "," "])
+    t.add_row([" ", "Read | Write"])
+    t.add_row([" ", " "])
     line_count += 5
 
-    qdpth =0
+    qdpth = 0
 
     for data in port_metrics :
-        p,v,i,ta,l,r,w = data.split('::')
+        p, v, i, ta, l, r, w = data.split('::')
         o = int(r)+int(w)
         qdpth += o
         line_count += 1
-        t.add_row(["{0}|{1}|{2}".format(i,ta,l),"{0:^3} | {1:^3}".format(r,w)])
-    #t.add_footer([[["Qdepth",str(qdpth)],[1,1],['l','l']]])
-    #t.add_row(['Qdepth',qdpth])
+        t.add_row(["{0}|{1}|{2}".format(i, ta, l), "{0:^3} | {1:^3}".format(r, w)])
+    # t.add_footer([[["Qdepth",str(qdpth)],[1,1],['l','l']]])
+    # t.add_row(['Qdepth',qdpth])
     line_count += 4
-    if return_vector[0] != None :
+    if return_vector[0] is not None:
         time.sleep(return_vector[1])
         clear_previous_lines(return_vector[0])
-    if return_vector[0] != None:
+    if return_vector[0] is not None:
         clear_previous_lines(2)
         print datetime.datetime.now()
     if return_vector[2]:
@@ -2225,21 +2268,38 @@ def displayOutstandingIo(json_out,return_vector) :
         print pdata
     print
     print t
-    if args.limit == max_flow_limit :
-        print "",'Instantaneous Qdepth :',qdpth
+    if args.limit == max_flow_limit:
+        print "", 'Instantaneous Qdepth :', qdpth
         line_count += 1
     print 
-    return [line_count , return_vector[1] , pdata]
+    return [line_count, return_vector[1], pdata]
+
+def getSwVersion():
+    '''
+    **********************************************************************************
+    * Function: getSwVersion
+    *
+    * Action: Get current Software version
+    * Returns: String as software version of the switch
+    **********************************************************************************
+    '''
+    try:
+        out = cli.cli('sh ver  | i version | i syst').strip()
+        ver = out.split(' ')[-1]
+        return ver
+    except Exception as e:
+        return None
 
 
-def getData(args,misc=None) :
+def getData(args, misc=None, ver=None):
     '''
     **********************************************************************************
     *  Function: getData
     *
-    *  Input: It takes 2 inputs:
+    *  Input: It takes 3 inputs:
     *           - args is global Object of Argparse Class
-    *           - misc which is default to none is to accomodate some operation as described below 
+    *           - misc which is default to none is to accomodate some operation as described below
+    *           - ver is software version number
     *  misc
     *  0 : default
     *  1 : run target querry this time for outstanding_io,top and histogram
@@ -2250,7 +2310,11 @@ def getData(args,misc=None) :
     **********************************************************************************
     '''
 
-    
+    trib,twib,tric,twic = 'total_time_metric_based_read_io_bytes','total_time_metric_based_write_io_bytes','total_time_metric_based_read_io_count','total_time_metric_based_write_io_count'
+    if ver == '8.3(1)':
+        trib,twib,tric,twic = 'total_read_io_bytes','total_write_io_bytes','total_read_io_count','total_write_io_count'
+        
+        
     table_name = ''
     global interface_list
 
@@ -2258,84 +2322,84 @@ def getData(args,misc=None) :
         if misc == None:
             return None
         else:
-            port,q_type = misc
+            port, q_type = misc
             if q_type == 'nvme':
                 query = "select nvme_initiator_itn_flow_count, nvme_target_itn_flow_count, read_io_rate, write_io_rate from fc-nvme.port where port={}".format(port)
             else:
                 query = "select scsi_initiator_itl_flow_count, scsi_target_itl_flow_count, read_io_rate, write_io_rate from fc-scsi.port where port={}".format(port)
 
-    if args.initiator_itl :
-        #table_name = 'scsi_initiator_itl_flow' ; #CSCvn26029 also added 4 line below
-        if args.target and args.initiator and args.lun :
-            query = "select port, vsan, initiator_id, target_id, lun, read_io_rate, write_io_rate, read_io_bandwidth, write_io_bandwidth, read_io_size_min, read_io_size_max, total_time_metric_based_read_io_bytes, total_time_metric_based_read_io_count, write_io_size_min, write_io_size_max, total_time_metric_based_write_io_bytes, total_time_metric_based_write_io_count, read_io_initiation_time_min, read_io_initiation_time_max, total_read_io_initiation_time, write_io_initiation_time_min, write_io_initiation_time_max, total_write_io_initiation_time, read_io_completion_time_min, read_io_completion_time_max, total_read_io_time, write_io_completion_time_min, write_io_completion_time_max, total_write_io_time, read_io_inter_gap_time_min, read_io_inter_gap_time_max, total_read_io_inter_gap_time, write_io_inter_gap_time_min, write_io_inter_gap_time_max, total_write_io_inter_gap_time from fc-scsi.scsi_initiator_itl_flow"
+    if args.initiator_itl:
+        # table_name = 'scsi_initiator_itl_flow' ; #CSCvn26029 also added 4 line below
+        if args.target and args.initiator and args.lun:
+            query = "select port, vsan, initiator_id, target_id, lun, read_io_rate, write_io_rate, read_io_bandwidth, write_io_bandwidth, read_io_size_min, read_io_size_max, {0}, {2}, write_io_size_min, write_io_size_max, {1}, {3}, read_io_initiation_time_min, read_io_initiation_time_max, total_read_io_initiation_time, write_io_initiation_time_min, write_io_initiation_time_max, total_write_io_initiation_time, read_io_completion_time_min, read_io_completion_time_max, total_read_io_time, write_io_completion_time_min, write_io_completion_time_max, total_write_io_time, read_io_inter_gap_time_min, read_io_inter_gap_time_max, total_read_io_inter_gap_time, write_io_inter_gap_time_min, write_io_inter_gap_time_max, total_write_io_inter_gap_time, read_io_aborts, write_io_aborts, read_io_failures, write_io_failures, peak_read_io_rate, peak_write_io_rate, peak_read_io_bandwidth, peak_write_io_bandwidth from fc-scsi.scsi_initiator_itl_flow".format(trib,twib,tric,twic)
         else :
             if args.minmax:
-                query = "select port,vsan,initiator_id,target_id,lun,peak_read_io_rate,peak_write_io_rate,peak_read_io_bandwidth,peak_write_io_bandwidth,read_io_completion_time_min,read_io_completion_time_max,write_io_completion_time_min,write_io_completion_time_max,read_io_rate,write_io_rate,read_io_bandwidth,write_io_bandwidth,total_read_io_time,total_write_io_time,total_time_metric_based_read_io_count,total_time_metric_based_write_io_count,read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_initiator_itl_flow" 
+                query = "select port,vsan,initiator_id,target_id,lun,peak_read_io_rate,peak_write_io_rate,peak_read_io_bandwidth,peak_write_io_bandwidth,read_io_completion_time_min,read_io_completion_time_max,write_io_completion_time_min,write_io_completion_time_max,read_io_rate,write_io_rate,read_io_bandwidth,write_io_bandwidth,total_read_io_time,total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_initiator_itl_flow".format(trib,twib,tric,twic)
             else:
-                if misc == None:
-                    #consider case of args.error also
-                    query = "select port,vsan,initiator_id,target_id,lun, total_read_io_time,total_write_io_time,total_time_metric_based_read_io_count,total_time_metric_based_write_io_count,read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_initiator_itl_flow"
+                if misc is None:
+                    # consider case of args.error also
+                    query = "select port,vsan,initiator_id,target_id,lun, total_read_io_time,total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_initiator_itl_flow".format(trib,twib,tric,twic)
                 else:
-                    query = "select port,vsan,initiator_id,target_id,lun,read_io_rate,write_io_rate,read_io_bandwidth,write_io_bandwidth,total_read_io_time,total_write_io_time,total_time_metric_based_read_io_count,total_time_metric_based_write_io_count,read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_initiator_itl_flow" 
+                    query = "select port,vsan,initiator_id,target_id,lun,read_io_rate,write_io_rate,read_io_bandwidth,write_io_bandwidth,total_read_io_time,total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_initiator_itl_flow".format(trib,twib,tric,twic)
 
-    if args.target_itl :
-        #table_name = 'scsi_target_itl_flow' ; #CSCvn26029 also added 4 line below
-        if args.target and args.initiator and args.lun :
-            query = "select port, VSAN, initiator_id, target_id, lun, read_io_rate, write_io_rate, read_io_bandwidth, write_io_bandwidth, read_io_size_min, read_io_size_max, total_time_metric_based_read_io_bytes, total_time_metric_based_read_io_count, write_io_size_min, write_io_size_max, total_time_metric_based_write_io_bytes, total_time_metric_based_write_io_count, read_io_initiation_time_min, read_io_initiation_time_max, total_read_io_initiation_time, write_io_initiation_time_min, write_io_initiation_time_max, total_write_io_initiation_time, read_io_completion_time_min, read_io_completion_time_max, total_read_io_time, write_io_completion_time_min, write_io_completion_time_max, total_write_io_time, read_io_inter_gap_time_min, read_io_inter_gap_time_max, total_read_io_inter_gap_time, write_io_inter_gap_time_min, write_io_inter_gap_time_max, total_write_io_inter_gap_time from fc-scsi.scsi_target_itl_flow"
+    if args.target_itl:
+        # table_name = 'scsi_target_itl_flow' ; #CSCvn26029 also added 4 line below
+        if args.target and args.initiator and args.lun:
+            query = "select port, VSAN, initiator_id, target_id, lun, read_io_rate, write_io_rate, read_io_bandwidth, write_io_bandwidth, read_io_size_min, read_io_size_max, {0}, {2}, write_io_size_min, write_io_size_max, {1}, {3}, read_io_initiation_time_min, read_io_initiation_time_max, total_read_io_initiation_time, write_io_initiation_time_min, write_io_initiation_time_max, total_write_io_initiation_time, read_io_completion_time_min, read_io_completion_time_max, total_read_io_time, write_io_completion_time_min, write_io_completion_time_max, total_write_io_time, read_io_inter_gap_time_min, read_io_inter_gap_time_max, total_read_io_inter_gap_time, write_io_inter_gap_time_min, write_io_inter_gap_time_max, total_write_io_inter_gap_time, read_io_aborts, write_io_aborts, read_io_failures, write_io_failures, peak_read_io_rate, peak_write_io_rate, peak_read_io_bandwidth, peak_write_io_bandwidth from fc-scsi.scsi_target_itl_flow".format(trib,twib,tric,twic)
         else : 
             if args.minmax:
-                query = "select port,vsan,initiator_id,target_id,lun,peak_read_io_rate,peak_write_io_rate,peak_read_io_bandwidth,peak_write_io_bandwidth,read_io_completion_time_min,read_io_completion_time_max,write_io_completion_time_min,write_io_completion_time_max,read_io_rate,write_io_rate,read_io_bandwidth,write_io_bandwidth,total_read_io_time,total_write_io_time,total_time_metric_based_read_io_count,total_time_metric_based_write_io_count,read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_target_itl_flow" 
+                query = "select port,vsan,initiator_id,target_id,lun,peak_read_io_rate,peak_write_io_rate,peak_read_io_bandwidth,peak_write_io_bandwidth,read_io_completion_time_min,read_io_completion_time_max,write_io_completion_time_min,write_io_completion_time_max,read_io_rate,write_io_rate,read_io_bandwidth,write_io_bandwidth,total_read_io_time,total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_target_itl_flow".format(trib,twib,tric,twic) 
             else:
-                if misc == None:
-                    #consider case of errors also
-                    query = "select port,vsan,initiator_id,target_id,lun, total_read_io_time,total_write_io_time,total_time_metric_based_read_io_count,total_time_metric_based_write_io_count,read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_target_itl_flow"
+                if misc is None:
+                    # consider case of errors also
+                    query = "select port,vsan,initiator_id,target_id,lun, total_read_io_time,total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_target_itl_flow".format(trib,twib,tric,twic)
                 else:
-                    query = "select port,vsan,initiator_id,target_id,lun,read_io_rate,write_io_rate,read_io_bandwidth,write_io_bandwidth,total_read_io_time,total_write_io_time,total_time_metric_based_read_io_count,total_time_metric_based_write_io_count,read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_target_itl_flow" 
+                    query = "select port,vsan,initiator_id,target_id,lun,read_io_rate,write_io_rate,read_io_bandwidth,write_io_bandwidth,total_read_io_time,total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_target_itl_flow".format(trib,twib,tric,twic)
     
 
-    #query = "select all from fc-scsi." + table_name ; #CSCvn26029
-    if args.vsan_thput :
+    # query = "select all from fc-scsi." + table_name ; #CSCvn26029
+    if args.vsan_thput:
         query = "select port, vsan, read_io_bandwidth, write_io_bandwidth, read_io_size_min, write_io_size_min, read_io_rate, write_io_rate from fc-scsi.logical_port"
-    if args.top :
-        if args.interface != None :
+    if args.top:
+        if args.interface is not None:
             pcre = re.match('port-channel(\d+)',args.interface)
-            if pcre != None :
+            if pcre is not None:
                 print "Port channel is not supported by --top option"
                 exit()
-        if args.key == None or args.key == 'IOPS':
-           wkey = ['read_io_rate','write_io_rate']
+        if args.key is None or args.key == 'IOPS':
+           wkey = ['read_io_rate', 'write_io_rate']
         if args.key == 'THPUT':
-           wkey = ['read_io_bandwidth','write_io_bandwidth']
+           wkey = ['read_io_bandwidth', 'write_io_bandwidth']
         if args.key == 'ECT':
-           wkey = ['total_time_metric_based_read_io_count','total_time_metric_based_write_io_count','total_read_io_time','total_write_io_time']
+           wkey = ['total_time_metric_based_read_io_count', 'total_time_metric_based_write_io_count', 'total_read_io_time','total_write_io_time']
         if not misc:
-            query = "select port,vsan,initiator_id,target_id,lun"
-            for jj in wkey :
+            query = "select port, vsan, initiator_id, target_id, lun"
+            for jj in wkey:
                 query = query + ',' + str(jj)
             query = query + " from fc-scsi.scsi_initiator_itl_flow"
         elif misc == 1:
-            query = "select port,vsan,initiator_id,target_id,lun"
-            for jj in wkey :
+            query = "select port, vsan, initiator_id, target_id, lun"
+            for jj in wkey:
                 query = query + ',' + str(jj)
             query = query + " from fc-scsi.scsi_target_itl_flow"
-        else :
+        else:
             return None
 
-    if args.outstanding_io :
-        pcre = re.match('port-channel(\d+)',args.interface)
-        if pcre != None :
+    if args.outstanding_io:
+        pcre = re.match('port-channel(\d+)', args.interface)
+        if pcre != None:
             print "Port channel is not supported by --outstanding-io option"
             exit()
         if not misc:
-            query = "select port,vsan,initiator_id,target_id,lun,active_io_read_count,active_io_write_count from fc-scsi.scsi_initiator_itl_flow"
+            query = "select port, vsan, initiator_id, target_id, lun,active_io_read_count, active_io_write_count from fc-scsi.scsi_initiator_itl_flow"
         else:
-            query = "select port,vsan,initiator_id,target_id,lun,active_io_read_count,active_io_write_count from fc-scsi.scsi_target_itl_flow"
+            query = "select port, vsan, initiator_id, target_id, lun, active_io_read_count, active_io_write_count from fc-scsi.scsi_target_itl_flow"
 
     filter_count = 0
-    filters = {'interface' : 'port', 'target' : 'target_id', 'initiator' : 'initiator_id', 'lun' : 'lun', 'vsan' : 'vsan'}
+    filters = {'interface': 'port', 'target': 'target_id', 'initiator': 'initiator_id', 'lun': 'lun', 'vsan': 'vsan'}
 
-    for key in filters.keys() :
-        if hasattr(args, key) and getattr(args, key) :
+    for key in filters.keys():
+        if hasattr(args, key) and getattr(args, key):
             if filter_count == 0: 
                 query += " where "
             else :
@@ -2346,9 +2410,9 @@ def getData(args,misc=None) :
     json_str = ""
 
     query += " limit "+str(args.limit)
-    try :
+    try:
         json_str = cli.cli("show analytics query '" + query + "'")
-    except :
+    except cli.cli_syntax_error:
         pass
     
     json_out = None
@@ -2356,7 +2420,7 @@ def getData(args,misc=None) :
     global error
     global error_flag
 
-    try :
+    try:
         json_out = json.loads(json_str)
     except ValueError, e:
         error['getData_str'] =  json_str
@@ -2367,14 +2431,14 @@ def getData(args,misc=None) :
     except MemoryError:
         error['getData_str']="Querry Output Too Huge to be processed"
         json_out = None
-        #print 'hibatra1'
         error_flag = True
         error['line_count'] = 1
-        if args.histogram :
-           if misc_opt == 0 :
-               return getData(args,1) 
+        if args.histogram:
+           if misc_opt == 0:
+               return getData(args, 1) 
 
     return json_out
+
 
 def print_util_help(self):
     print '''
@@ -2486,17 +2550,21 @@ parser.add_argument('--refresh', action="store_true",help='Auto refresh')
 
 args = parser.parse_args()
 
-if not validateArgs (args) :
+if not validateArgs (args):
     os._exit(1) 
-
+    
+sw_ver = getSwVersion()
+if sw_ver is None:
+    print 'Unable to get Switch software version'
+    os._exit(1)
 
 date = datetime.datetime.now()
 if not args.errorsonly:
     print date
 
-json_out = getData(args)
+json_out = getData(args, ver=sw_ver)
 
-if not json_out and ( args.top or args.outstanding_io ):
+if not json_out and (args.top or args.outstanding_io):
     json_out = ' '
 if not json_out and not args.evaluate_npuload:
     if error_flag and 'empty' not in error['getData_str']:
@@ -2508,35 +2576,35 @@ if not json_out and not args.evaluate_npuload:
         print "\n\t Table is empty\n"
 else :
     if args.info:
-        if args.target and args.initiator and args.lun :
-            displayDetailOverlay(json_out)
-        else :
-            displayFlowInfoOverlay(json_out)
+        if args.target and args.initiator and args.lun:
+            displayDetailOverlay(json_out, ver=sw_ver)
+        else:
+            displayFlowInfoOverlay(json_out, ver=sw_ver)
 
     if args.errors or args.errorsonly:
-        displayErrorsOverlay(json_out,date)
+        displayErrorsOverlay(json_out, date, ver=sw_ver)
 
     elif args.minmax: 
-        displayFlowInfoOverlay(json_out)
+        displayFlowInfoOverlay(json_out, ver=sw_ver)
 
     elif args.evaluate_npuload:
-        displayNpuloadEvaluation(json_out)
+        displayNpuloadEvaluation(json_out, ver=sw_ver)
 
     elif args.vsan_thput:
-        displayVsanOverlay(json_out)
+        displayVsanOverlay(json_out, ver=sw_ver)
 
-    elif args.top :
-        return_vector = displayTop(args,json_out,[None,2,None])
-        while (not(return_vector[0] == None  and return_vector[2] == None) ) :
-            json_out = getData(args)
-            if not json_out :
+    elif args.top:
+        return_vector = displayTop(args, json_out, [None,2,None], ver=sw_ver)
+        while (not(return_vector[0] is None  and return_vector[2] is None) ):
+            json_out = getData(args, ver=sw_ver)
+            if not json_out:
                 json_out = ' '
-            return_vector = displayTop(args,json_out,return_vector)
-    elif args.outstanding_io :
-        return_vector = displayOutstandingIo(json_out,[None,1,None])
-        if args.refresh :
-            while (not(return_vector[0] == None  and return_vector[2] == None) ) :
-                json_out = getData(args)
-                if not json_out :
+            return_vector = displayTop(args, json_out, return_vector, ver=sw_ver)
+    elif args.outstanding_io:
+        return_vector = displayOutstandingIo(json_out, [None, 1, None], ver=sw_ver)
+        if args.refresh:
+            while (not(return_vector[0] is None  and return_vector[2] is None) ):
+                json_out = getData(args, ver=sw_ver)
+                if not json_out:
                     json_out = ' '
-                return_vector = displayOutstandingIo(json_out,return_vector)
+                return_vector = displayOutstandingIo(json_out, return_vector, ver=sw_ver)

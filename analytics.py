@@ -2620,8 +2620,8 @@ ARGUMENTS:
 
 Note:
   --interface can take range of interfaces in case of --evaluate-npuload and port-channel only in case of --vsan-thput
-  --initiator-itn or --target-itn options are supported from NXOS version 8.4(1) onwards
-  --nvme or --namespace arguments are supported from NXOS version 8.4(1) onwards
+  --initiator-itn and --target-itn options are supported from NXOS version 8.4(1) onwards
+  --nvme and --namespace arguments are supported from NXOS version 8.4(1) onwards
 '''.format(flow_limit=max_flow_limit)
     return True
 

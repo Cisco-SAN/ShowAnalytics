@@ -531,15 +531,22 @@ def extract_module_from_port(inte):
         return 0
 
 
-def validateArgs (args):
+def validateArgs(arg,swver):
     '''
     **********************************************************************************
     * Function: validateArgs
     *
-    * Input: Object of argparse constructed by command line arguments 
+    * Input: Object of argparse constructed by command line arguments,software_version_str
     * Returns: Bool which is True if validation of argument passes and False ootherwise
     **********************************************************************************
     '''
+
+    if args.initiator_itn or args.target_itn or args.nvme:
+        ver1 = ''.join([i for i in swver if i.isdigit()])
+        if int(ver1) < 841 or len(ver1) < 3:
+            print "NVMe is not compatible with NXOS version {0}".format(swver)
+            return False
+            
     if not args.info and not args.errors and not args.errorsonly and not args.minmax and not args.evaluate_npuload and not args.vsan_thput and not args.top and not args.outstanding_io :
         print "\n Please choose an action via --info or --minmax or --errors or --errorsonly or --evaluate-npuload or --vsan-thput or --top or --outstanding-io option\n"
         return False
@@ -548,13 +555,29 @@ def validateArgs (args):
         print "\nPlease choose a single option out of --info, --errors, --errorsonly, --minmax, --evaluate-npuload, --vsan-thput, --top and --outstanding-io \n"
         return False
 
-    if not args.initiator_itl and not args.target_itl and not args.evaluate_npuload and not args.vsan_thput and not args.top and not args.outstanding_io:
-        print "\n Please choose a table type via --initiator-itl or --target-itl option\n"
+    if not args.initiator_itl and not args.target_itl and not args.initiator_it and not args.target_it and not args.initiator_itn and not args.target_itn and not args.evaluate_npuload and not args.vsan_thput and not args.top and not args.outstanding_io:
+        print "\n Please choose a table type via --initiator-itl or --target-itl or --initiator-it or --target-it or --initiator-itn or --target-itn option\n"
         return False
 
-    if args.initiator_itl and args.target_itl :
-        print "\n Please choose a single table type via --initiator-itl or --target-itl\n"
+    if int(args.initiator_itl) + int(args.target_itl) + int(args.initiator_it) + int(args.target_it) + int(args.initiator_itn) + int(args.target_itn) > 1:
+        print "\n Please choose a single table type via --initiator-itl or --target-itl or --initiator-it or --target-it or --initiator-itn or --target-itn\n"
         return False
+
+    if args.nvme and args.evaluate_npuload:
+        print "--nvme option is not required for --evaluate-npuload. It by default consider both scsi and nvme"
+        return False
+
+    if args.nvme and (args.initiator_itl or args.target_itl):
+        print 'To get NVMe stats select --initiator-itn or --target-itn option'
+        return False
+
+    if args.namespace:
+        if not args.nvme:
+            print "--namespace argument is only supported with --nvme or --initiator-itn or --target-itn"
+            return False
+        if not (args.initiator_itn or args.target_itn or args.top or args.outstanding_io):
+            print "--namespace argument is not supported with current option"
+            return False
 
     if args.initiator:
         try :
@@ -591,8 +614,8 @@ def validateArgs (args):
             print "Please enter a valid lun id in xxxx-xxxx-xxxx-xxxx format"
             return False
 
-    if (args.initiator_itl or args.target_itl ) and (not (args.info or args.errors or args.minmax or args.errorsonly)):
-        print "--initiator-itl or --target-itl is only supported with --info or --errors or --errorsonly or --minmax"
+    if (args.initiator_itl or args.target_itl or args.initiator_it or args.target_it) and (not (args.info or args.errors or args.minmax or args.errorsonly)):
+        print "--initiator-itl or --target-itl or --initiator-it or --target-it is only supported with --info or --errors or --errorsonly or --minmax"
         return False
 
     if args.limit:
@@ -827,8 +850,11 @@ def getAnalyticsEnabledPorts():
     **********************************************************************************
     '''
     out = []
-    j_s = ""  
-    qry = 'select port from fc-scsi.logical_port'
+    j_s = ""
+    if args.nvme:
+        qry = 'select port from fc-nvme.logical_port'
+    else: 
+        qry = 'select port from fc-scsi.logical_port'
     try:
         j_s = cli.cli("show analytics query '" + qry + "'")
         j_s = json.loads(j_s)
@@ -979,7 +1005,7 @@ def displayDetailOverlay(json_out, ver=None):
     *
     * Input: json_out is the json data returned by switch as response for querry
     *        ver is software version of switch
-    * Action: Displays detailed statistics of a particular ITL
+    * Action: Displays detailed statistics of a particular ITL/N
     * Returns: None
     **********************************************************************************
     '''
@@ -1021,7 +1047,7 @@ def displayDetailOverlay(json_out, ver=None):
             salt = '       '
             if 'rate' not in key:
                 salt = ' '
-            col_values.append("{} {} {}".format(conv[key],salt,'(4sec Avg)'))
+            col_values.append("{0} {1} {2}".format(conv[key],salt,'(4sec Avg)'))
             col_values.append('NA')
             col_values.append('NA')
             out_val = json_out['values']['1'][key]
@@ -1133,9 +1159,11 @@ def displayFlowInfoOverlay(json_out, ver=None):
         fcid2pwwn = getfcid2pwwn()
         pwwn2alias = getDalias()
         max_init_alias_len, max_targ_alias_len = 22, 19
-        
+    
+    lun_str = '|Namespace' if args.nvme else '|LUN'
+    lun_str = '' if (args.initiator_it or args.target_it) else lun_str
 
-    col_names = ['VSAN|Initiator|Target|LUN', 'Avg IOPS', 'Avg Throughput', 'Avg ECT']
+    col_names = ['VSAN|Initiator|Target{0}'.format(lun_str), 'Avg IOPS', 'Avg Throughput', 'Avg ECT']
     col_names_desc = ['', 'Read | Write', 'Read | Write', 'Read | Write']
     metrics = []
     cols = ''
@@ -1147,7 +1175,7 @@ def displayFlowInfoOverlay(json_out, ver=None):
     max_iops = 0
 
     if args.minmax:
-        col_names = ['VSAN|Initiator|Target|LUN', 'Peak IOPS*', 'Peak Throughput*', 'Read ECT*', 'Write ECT*']
+        col_names = ['VSAN|Initiator|Target{0}'.format(lun_str), 'Peak IOPS*', 'Peak Throughput*', 'Read ECT*', 'Write ECT*']
     else:
         pre_a = {}
         while counter <= sizeJson:
@@ -1165,6 +1193,9 @@ def displayFlowInfoOverlay(json_out, ver=None):
                     target = value
                     continue
                 if str(key) == 'lun':
+                    lun = value
+                    continue
+                if str(key) == 'namespace_id':
                     lun = value
                     continue
                 if str(key) == 'total_read_io_time' and value != 0:
@@ -1217,6 +1248,9 @@ def displayFlowInfoOverlay(json_out, ver=None):
                 target = value
                 continue
             if str(key) == 'lun':
+                lun = value
+                continue
+            if str(key) == 'namespace_id':
                 lun = value
                 continue
             if str(key) == 'read_io_rate' and value != 0:
@@ -1349,7 +1383,9 @@ def displayFlowInfoOverlay(json_out, ver=None):
             col_values = []
             parts  = []
             parts  = l.split('::')
-            cols = str(parts[1]) + '|' + str(parts[2]) + '|' + str(parts[3]) + '|' + str(parts[4])
+            cols = str(parts[1]) + '|' + str(parts[2]) + '|' + str(parts[3])
+            if not (args.initiator_it or args.target_it):
+                cols = cols + '|' + str(parts[4])
             col_values.append(cols)
             col_values.append(" {0:^{width}} | {1:^{width}} ".format(parts[5],parts[6], width=max_iops_len))
             col_values.append(" {0:>10} | {1:^11} ".format(thput_conv(float(parts[7])), thput_conv(float(parts[8]))))
@@ -1408,7 +1444,12 @@ def displayErrorsOverlay(json_out, date, ver=None):
            return [alias_str, iav]
 
     displaydateFlag = False
-    col_names = ['VSAN|Initiator|Target|LUN', 'Total SCSI Failures', 'Total FC Aborts']
+
+    lun_str = '|Namespace' if args.nvme else '|LUN'
+    lun_str = '' if (args.initiator_it or args.target_it) else lun_str
+    failure_str = 'Total NVMe Failures' if args.nvme else 'Total SCSI Failures'
+
+    col_names = ['VSAN|Initiator|Target{0}'.format(lun_str), failure_str, 'Total FC Aborts']
     col_names_desc = ['', 'Read | Write', 'Read | Write']
     col_values = []
     metrics = []
@@ -1426,20 +1467,31 @@ def displayErrorsOverlay(json_out, date, ver=None):
             #print key,value
             if str(key) == 'port':
                 port = value
+                continue
             if str(key) == 'vsan':
                 vsan = value
+                continue
             if str(key) == 'initiator_id':
                 initiator = value
+                continue
             if str(key) == 'target_id':
                 target = value
+                continue
             if str(key) == 'lun':
                 lun = value
+                continue
+            if str(key) == 'namespace_id':
+                lun = value
+                continue
             if str(key) == 'read_io_aborts' and value != 0:
                 abortsR = int(value)
+                continue
             if str(key) == 'write_io_aborts' and value != 0:
                 abortsW = int(value)
+                continue
             if str(key) == 'read_io_failures' and value != 0:
                 failR = int(value)
+                continue
             if str(key) == 'write_io_failures' and value != 0:
                 failW = int(value)
         counter = counter + 1
@@ -1496,7 +1548,9 @@ def displayErrorsOverlay(json_out, date, ver=None):
             col_values = []
             parts  = []
             parts  = l.split('::')
-            cols = str(parts[1]) + '|' + str(parts[2]) + '|' + str(parts[3]) + '|' + str(parts[4])
+            cols = str(parts[1]) + '|' + str(parts[2]) + '|' + str(parts[3]) 
+            if not(args.initiator_it or args.target_it):
+                cols = cols + '|' + str(parts[4])
             col_values.append(cols)
             col_values.append("{0:^{width}}|{1:^{width}}".format(parts[5],parts[6],width=failure_width))
             col_values.append("{0:^{width}}|{1:^{width}}".format(parts[7],parts[8],width=abort_width))
@@ -1817,18 +1871,25 @@ def displayVsanOverlay(json_out, ver=None) :
         for key,value in json_out['values'][str(counter)].iteritems():
             if str(key) == 'port':
                 port = str(value)
+                continue
             elif str(key) == 'vsan':
                 vsan = int(value)
+                continue
             elif str(key) == 'read_io_bandwidth':
                 read = int(value)
+                continue
             elif str(key) == 'write_io_bandwidth':
                 write = int(value)
+                continue
             elif str(key) == 'read_io_size_min':
                 rios = int(value)
+                continue
             elif str(key) == 'write_io_size_min':
                 wios = int(value)
+                continue
             elif str(key) == 'read_io_rate':
                 rir = int(value)
+                continue
             elif str(key) == 'write_io_rate':
                 wir = int(value)
             else:
@@ -1905,7 +1966,8 @@ def displayVsanOverlay(json_out, ver=None) :
             t.add_row(col)
         print "\n Interface " + port
         print t
-    print 'Note: This data is only for SCSI\n'
+    proto = 'NVMe' if args.nvme else 'SCSI'
+    print 'Note: This data is only for {0}\n'.format(proto)
 
 
 def displayTop(args,json_out, return_vector, ver=None):
@@ -2004,7 +2066,8 @@ def displayTop(args,json_out, return_vector, ver=None):
         while counter <= sizeJson:
     
             iter_itl = json_out['values'][str(counter)]
-            port, initiator, target, lun = [str(iter_itl.get(unicode(i), '')) for i in ['port', 'initiator_id', 'target_id', 'lun']]
+            lun_id_str = 'namespace_id' if args.nvme else 'lun'
+            port, initiator, target, lun = [str(iter_itl.get(unicode(i), '')) for i in ['port', 'initiator_id', 'target_id', lun_id_str]]
             vsan = str(iter_itl.get(u'vsan',0))
             read,write,rb,wb,totalread,totalwrite,readCount,writeCount = [int(iter_itl.get(unicode(i),0)) for i in ['read_io_rate', 'write_io_rate', 'read_io_bandwidth', 'write_io_bandwidth', 'total_read_io_time', 'total_write_io_time', tric, twic]]
     
@@ -2058,15 +2121,16 @@ def displayTop(args,json_out, return_vector, ver=None):
     else:
         port_metrics = sorted(metrics, key=lambda st : int(st.split('::')[7]), reverse=True)[:top_count]
     #clear_previous_lines(1)
+    lun_str = '|Namespace' if args.nvme else '|LUN'
     if args.progress:
         sys.stdout.write('####')
         sys.stdout.flush()
     if args.key == None or args.key == 'IOPS':
-        col_names = ["PORT", "VSAN|Initiator|Target|LUN", "Avg IOPS"]
+        col_names = ["PORT", "VSAN|Initiator|Target{0}".format(lun_str), "Avg IOPS"]
     elif args.key == 'THPUT': 
-        col_names = ["PORT", "VSAN|Initiator|Target|LUN", "Avg Throughput"]
+        col_names = ["PORT", "VSAN|Initiator|Target{0}".format(lun_str), "Avg Throughput"]
     elif args.key == 'ECT':
-        col_names = ["PORT", "VSAN|Initiator|Target|LUN", "ECT"]
+        col_names = ["PORT", "VSAN|Initiator|Target{0}".format(lun_str), "ECT"]
     if args.alias:
         col_names.append("{0:^{width}}".format('Initiator Device alias', width=max_init_alias_len))
         col_names.append("{0:^{width}}".format('Target Device alias', width=max_targ_alias_len))
@@ -2162,7 +2226,8 @@ def displayOutstandingIo(json_out, return_vector, ver=None):
             line_count += error['line_count']
             line_count += 1
 
-    col_names = ["Initiator|Target|LUN", "Outstanding IO"]
+    lun_str = '|Namespace' if args.nvme else '|LUN'
+    col_names = ["Initiator|Target{0}".format(lun_str), "Outstanding IO"]
     json_out1 = getData(args, 1, ver)
     #print json_out
 
@@ -2207,7 +2272,8 @@ def displayOutstandingIo(json_out, return_vector, ver=None):
         counter = 1
         while counter <= sizeJson:
             iter_itl = json_out['values'][str(counter)]
-            port, initiator, target, lun = [str(iter_itl.get(unicode(i), '')) for i in ['port', 'initiator_id', 'target_id', 'lun']]
+            lun_id_str = 'namespace_id' if args.nvme else 'lun'
+            port, initiator, target, lun = [str(iter_itl.get(unicode(i), '')) for i in ['port', 'initiator_id', 'target_id', lun_id_str]]
             vsan = str(iter_itl.get(u'vsan',0))
             read, write = [int((iter_itl.get(unicode(i), 0))) for i in ['active_io_read_count', 'active_io_write_count']]
             counter += 1
@@ -2328,38 +2394,42 @@ def getData(args, misc=None, ver=None):
             else:
                 query = "select scsi_initiator_itl_flow_count, scsi_target_itl_flow_count, read_io_rate, write_io_rate from fc-scsi.port where port={}".format(port)
 
-    if args.initiator_itl:
+    lun_field = 'namespace_id,' if args.nvme else 'lun,'
+    protocol_str = 'fc-nvme' if args.nvme else 'fc-scsi'
+    table_protocol_str = 'nvme' if args.nvme else 'scsi'
+    ln_str = 'n' if args.nvme else 'l'
+
+    if args.initiator_itl or args.target_itl or args.initiator_it or args.target_it or args.initiator_itn or args.target_itn:
+        lun_field = '' if (args.initiator_it or args.target_it) else lun_field
+        if args.initiator_itl:
+            table_name = 'scsi_initiator_itl_flow'
+        elif args.target_itl:
+            table_name = 'scsi_target_itl_flow'
+        elif args.initiator_itn:
+            table_name = 'nvme_initiator_itn_flow'
+        elif args.target_itn:
+            table_name = 'nvme_target_itn_flow'
+        elif args.initiator_it:
+            table_name = '{0}_initiator_it_flow'.format(table_protocol_str)
+        elif args.target_it:
+            table_name = '{0}_target_it_flow'.format(table_protocol_str)
         # table_name = 'scsi_initiator_itl_flow' ; #CSCvn26029 also added 4 line below
-        if args.target and args.initiator and args.lun:
-            query = "select port, vsan, initiator_id, target_id, lun, read_io_rate, write_io_rate, read_io_bandwidth, write_io_bandwidth, read_io_size_min, read_io_size_max, {0}, {2}, write_io_size_min, write_io_size_max, {1}, {3}, read_io_initiation_time_min, read_io_initiation_time_max, total_read_io_initiation_time, write_io_initiation_time_min, write_io_initiation_time_max, total_write_io_initiation_time, read_io_completion_time_min, read_io_completion_time_max, total_read_io_time, write_io_completion_time_min, write_io_completion_time_max, total_write_io_time, read_io_inter_gap_time_min, read_io_inter_gap_time_max, total_read_io_inter_gap_time, write_io_inter_gap_time_min, write_io_inter_gap_time_max, total_write_io_inter_gap_time, read_io_aborts, write_io_aborts, read_io_failures, write_io_failures, peak_read_io_rate, peak_write_io_rate, peak_read_io_bandwidth, peak_write_io_bandwidth from fc-scsi.scsi_initiator_itl_flow".format(trib,twib,tric,twic)
+        if args.target and args.initiator and (args.lun or args.namespace):
+            query = "select port, vsan, initiator_id, target_id, {lun} read_io_rate, write_io_rate, read_io_bandwidth, write_io_bandwidth, read_io_size_min, read_io_size_max, {0}, {2}, write_io_size_min, write_io_size_max, {1}, {3}, read_io_initiation_time_min, read_io_initiation_time_max, total_read_io_initiation_time, write_io_initiation_time_min, write_io_initiation_time_max, total_write_io_initiation_time, read_io_completion_time_min, read_io_completion_time_max, total_read_io_time, write_io_completion_time_min, write_io_completion_time_max, total_write_io_time, read_io_inter_gap_time_min, read_io_inter_gap_time_max, total_read_io_inter_gap_time, write_io_inter_gap_time_min, write_io_inter_gap_time_max, total_write_io_inter_gap_time, read_io_aborts, write_io_aborts, read_io_failures, write_io_failures, peak_read_io_rate, peak_write_io_rate, peak_read_io_bandwidth, peak_write_io_bandwidth from {proto}.{fc_table}".format(trib, twib,tric, twic, lun=lun_field ,proto=protocol_str, fc_table=table_name)
         else :
             if args.minmax:
-                query = "select port,vsan,initiator_id,target_id,lun,peak_read_io_rate,peak_write_io_rate,peak_read_io_bandwidth,peak_write_io_bandwidth,read_io_completion_time_min,read_io_completion_time_max,write_io_completion_time_min,write_io_completion_time_max,read_io_rate,write_io_rate,read_io_bandwidth,write_io_bandwidth,total_read_io_time,total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_initiator_itl_flow".format(trib,twib,tric,twic)
+                query = "select port,vsan,initiator_id,target_id,{lun}peak_read_io_rate,peak_write_io_rate,peak_read_io_bandwidth,peak_write_io_bandwidth,read_io_completion_time_min,read_io_completion_time_max,write_io_completion_time_min,write_io_completion_time_max,read_io_rate,write_io_rate,read_io_bandwidth,write_io_bandwidth,total_read_io_time,total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from {proto}.{fc_table}".format(trib,twib,tric,twic, lun=lun_field, proto=protocol_str, fc_table=table_name)
             else:
                 if misc is None:
                     # consider case of args.error also
-                    query = "select port,vsan,initiator_id,target_id,lun, total_read_io_time,total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_initiator_itl_flow".format(trib,twib,tric,twic)
+                    query = "select port,vsan,initiator_id,target_id,{lun} total_read_io_time,total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from {proto}.{fc_table}".format(trib,twib,tric,twic, lun=lun_field, proto=protocol_str, fc_table=table_name)
                 else:
-                    query = "select port,vsan,initiator_id,target_id,lun,read_io_rate,write_io_rate,read_io_bandwidth,write_io_bandwidth,total_read_io_time,total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_initiator_itl_flow".format(trib,twib,tric,twic)
+                    query = "select port,vsan,initiator_id,target_id,{lun}read_io_rate,write_io_rate,read_io_bandwidth,write_io_bandwidth,total_read_io_time,total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from {proto}.{fc_table}".format(trib,twib,tric,twic, lun=lun_field, proto=protocol_str, fc_table=table_name)
 
-    if args.target_itl:
-        # table_name = 'scsi_target_itl_flow' ; #CSCvn26029 also added 4 line below
-        if args.target and args.initiator and args.lun:
-            query = "select port, VSAN, initiator_id, target_id, lun, read_io_rate, write_io_rate, read_io_bandwidth, write_io_bandwidth, read_io_size_min, read_io_size_max, {0}, {2}, write_io_size_min, write_io_size_max, {1}, {3}, read_io_initiation_time_min, read_io_initiation_time_max, total_read_io_initiation_time, write_io_initiation_time_min, write_io_initiation_time_max, total_write_io_initiation_time, read_io_completion_time_min, read_io_completion_time_max, total_read_io_time, write_io_completion_time_min, write_io_completion_time_max, total_write_io_time, read_io_inter_gap_time_min, read_io_inter_gap_time_max, total_read_io_inter_gap_time, write_io_inter_gap_time_min, write_io_inter_gap_time_max, total_write_io_inter_gap_time, read_io_aborts, write_io_aborts, read_io_failures, write_io_failures, peak_read_io_rate, peak_write_io_rate, peak_read_io_bandwidth, peak_write_io_bandwidth from fc-scsi.scsi_target_itl_flow".format(trib,twib,tric,twic)
-        else : 
-            if args.minmax:
-                query = "select port,vsan,initiator_id,target_id,lun,peak_read_io_rate,peak_write_io_rate,peak_read_io_bandwidth,peak_write_io_bandwidth,read_io_completion_time_min,read_io_completion_time_max,write_io_completion_time_min,write_io_completion_time_max,read_io_rate,write_io_rate,read_io_bandwidth,write_io_bandwidth,total_read_io_time,total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_target_itl_flow".format(trib,twib,tric,twic) 
-            else:
-                if misc is None:
-                    # consider case of errors also
-                    query = "select port,vsan,initiator_id,target_id,lun, total_read_io_time,total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_target_itl_flow".format(trib,twib,tric,twic)
-                else:
-                    query = "select port,vsan,initiator_id,target_id,lun,read_io_rate,write_io_rate,read_io_bandwidth,write_io_bandwidth,total_read_io_time,total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,read_io_failures,write_io_failures from fc-scsi.scsi_target_itl_flow".format(trib,twib,tric,twic)
-    
 
     # query = "select all from fc-scsi." + table_name ; #CSCvn26029
     if args.vsan_thput:
-        query = "select port, vsan, read_io_bandwidth, write_io_bandwidth, read_io_size_min, write_io_size_min, read_io_rate, write_io_rate from fc-scsi.logical_port"
+        query = "select port, vsan, read_io_bandwidth, write_io_bandwidth, read_io_size_min, write_io_size_min, read_io_rate, write_io_rate from {proto}.logical_port".format(proto=protocol_str)
     if args.top:
         if args.interface is not None:
             pcre = re.match('port-channel(\d+)',args.interface)
@@ -2373,15 +2443,15 @@ def getData(args, misc=None, ver=None):
         if args.key == 'ECT':
            wkey = ['total_time_metric_based_read_io_count', 'total_time_metric_based_write_io_count', 'total_read_io_time','total_write_io_time']
         if not misc:
-            query = "select port, vsan, initiator_id, target_id, lun"
+            query = "select port, vsan, initiator_id, target_id, {0}".format(lun_field[:-1])
             for jj in wkey:
                 query = query + ',' + str(jj)
-            query = query + " from fc-scsi.scsi_initiator_itl_flow"
+            query = query + " from {0}.{1}_initiator_it{2}_flow".format(protocol_str, table_protocol_str, ln_str)
         elif misc == 1:
-            query = "select port, vsan, initiator_id, target_id, lun"
+            query = "select port, vsan, initiator_id, target_id, {0}".format(lun_field[:-1])
             for jj in wkey:
                 query = query + ',' + str(jj)
-            query = query + " from fc-scsi.scsi_target_itl_flow"
+            query = query + " from {0}.{1}_target_it{2}_flow".format(protocol_str, table_protocol_str, ln_str)
         else:
             return None
 
@@ -2391,12 +2461,13 @@ def getData(args, misc=None, ver=None):
             print "Port channel is not supported by --outstanding-io option"
             exit()
         if not misc:
-            query = "select port, vsan, initiator_id, target_id, lun,active_io_read_count, active_io_write_count from fc-scsi.scsi_initiator_itl_flow"
+            query = "select port, vsan, initiator_id, target_id, {lun} active_io_read_count, active_io_write_count from {proto}.{proto1}_initiator_it{ln}_flow".format(lun=lun_field, proto=protocol_str, proto1 = table_protocol_str, ln=ln_str)
         else:
-            query = "select port, vsan, initiator_id, target_id, lun, active_io_read_count, active_io_write_count from fc-scsi.scsi_target_itl_flow"
+            query = "select port, vsan, initiator_id, target_id, {lun} active_io_read_count, active_io_write_count from {proto}.{proto1}_target_it{ln}_flow".format(lun=lun_field, proto=protocol_str, proto1 = table_protocol_str, ln=ln_str)
 
     filter_count = 0
-    filters = {'interface': 'port', 'target': 'target_id', 'initiator': 'initiator_id', 'lun': 'lun', 'vsan': 'vsan'}
+    filters = {'interface': 'port', 'target': 'target_id', 'initiator': 'initiator_id', 'lun': 'lun', 'vsan': 'vsan', 'namespace': 'namespace_id'}
+
 
     for key in filters.keys():
         if hasattr(args, key) and getattr(args, key):
@@ -2448,21 +2519,37 @@ ShowAnalytics   --errors <options> | --errorsonly <options> | --evaluate-npuload
 OPTIONS :
 ---------
  
- --errors                 Provides error metrics for all ITLs
-                          ShowAnalytics --errors [--initiator-itl <args> | --target-itl <args>]
+ --errors                 Provides error metrics for all IT(L/N)s
+                          ShowAnalytics --errors [--initiator-itl <args> | --target-itl <args> | --initiator-itn <args> | --target-itn <args> | --initiator-it <args> | --target-it <args>]
  
       --initiator-itl         Provides errors metrics for initiator ITLs
                               Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--alias] [--limit <itl_limit>]
-      --target-itl            Provides errors metrics for target ITLs
+      --target-itl            Provides errors metrics for target ITNs
                               Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--alias] [--limit <itl_limit>]
+      --initiator-itn         Provides errors metrics for NVMe initiator ITNs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--limit <itl_limit>] [--namespace <namespace_id>]
+      --target-itn            Provides errors metrics for NVMe target ITNs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--limit <itl_limit>] [--namespace <namespace_id>]
+      --initiator-it          Provides errors metrics for initiator ITs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--limit <itl_limit>] [--nvme]
+      --target-it             Provides errors metrics for target ITs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--limit <itl_limit>] [--nvme]
      
  --errorsonly             Provides error metrics for ITLs. Only display ITLs with non-zero errors.
-                          ShowAnalytics --errorsonly [--initiator-itl <args> | --target-itl <args>]
+                          ShowAnalytics --errorsonly [--initiator-itl <args> | --target-itl <args> | --initiator-itn <args> | --target-itn <args> | --initiator-it <args> | --target-it <args>]
  
       --initiator-itl         Provides errors metrics for initiator ITLs
-                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--alias]
-      --target-itl            Provides errors metrics for target ITLs
-                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--alias]
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--alias] [--limit <itl_limit>]
+      --target-itl            Provides errors metrics for target ITNs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--alias] [--limit <itl_limit>]
+      --initiator-itn         Provides errors metrics for NVMe initiator ITNs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--limit <itl_limit>] [--namespace <namespace_id>]
+      --target-itn            Provides errors metrics for NVMe target ITNs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--limit <itl_limit>] [--namespace <namespace_id>]
+      --initiator-it          Provides errors metrics for initiator ITs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--limit <itl_limit>] [--nvme]
+      --target-it             Provides errors metrics for target ITs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--limit <itl_limit>] [--nvme]
 
  --evaluate-npuload       Provides per port NPU load
                           This option must be run without analytics interface configurations
@@ -2472,33 +2559,47 @@ OPTIONS :
  --help                   Provides help about this utility
 
  --info                   Provide information about ITLs
-                          ShowAnalytics --info [--initiator-itl <args> | --target-itl <args>] 
+                          ShowAnalytics --info [--initiator-itl <args> | --target-itl <args> | --initiator-itn <args> | --target-itn <args> | --initiator-it <args> | --target-it <args>] 
  
       --initiator-itl         Provides ITL view for initiators ITLs
                               Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--alias] [--limit <itl_limit>]
- 
       --target-itl            Provides ITL view for target  ITLs
                               Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--alias] [--limit <itl_limit>]
- 
+      --initiator-itn         Provides ITN view for NVMe initiator ITNs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--limit <itl_limit>] [--namespace <namespace_id>]
+      --target-itn            Provides ITN views for NVMe target ITNs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--limit <itl_limit>] [--namespace <namespace_id>]
+      --initiator-it          Provides IT view for initiators ITs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--alias] [--limit <itl_limit>] [--nvme]
+      --target-it             Provides IT view for target  ITs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>]d>] [--alias] [--limit <itl_limit>] [--nvme]
+
  --minmax                 Provide Min/Max/Peak values of ITLs
-                          ShowAnalytics --minmax [--initiator-itl <args> | --target-itl <args>] 
+                          ShowAnalytics --minmax [--initiator-itl <args> | --target-itl <args> | --initiator-itn <args> | --target-itn <args> | --initiator-it <args> | --target-it <args>] 
  
       --initiator-itl         Provides ITL view for initiators ITLs
                               Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--alias] [--limit <itl_limit>]
- 
       --target-itl            Provides ITL view for target  ITLs
                               Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--alias] [--limit <itl_limit>]
+      --initiator-itn         Provides ITN view for NVMe initiator ITNs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--limit <itl_limit>] [--namespace <namespace_id>]
+      --target-itn            Provides ITN views for NVMe target ITNs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--limit <itl_limit>] [--namespace <namespace_id>]
+      --initiator-it          Provides IT view for initiators ITs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--alias] [--limit <itl_limit>] [--nvme]
+      --target-it             Provides IT view for target  ITs
+                              Args :  [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>]d>] [--alias] [--limit <itl_limit>] [--nvme]
  
  --outstanding-io         Provides Outstanding io per ITL for an interface
-                          Args : [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--limit] [--refresh]
+                          Args : [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--limit] [--refresh] [--nvme] [--namespace <namespace_id>]
  
  --top                    Provides top ITLs based on key. Default key is IOPS
-                          Args : [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--limit] [--key <IOPS|THPUT|ECT>] [--progress] [--alias]
+                          Args : [--interface <interface>] [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--limit] [--key <IOPS|THPUT|ECT>] [--progress] [--alias] [--nvme] [--namespace <namespace_id>]
 
  --version                Provides version details of this utility
 
  --vsan-thput             Provides per vsan scsi traffic rate for interface.
-                          Args : [--interface <interface>]
+                          Args : [--interface <interface>] [--nvme]
 
 ARGUMENTS:
 ---------
@@ -2510,12 +2611,17 @@ ARGUMENTS:
       --limit             <itl_limit>         Maximum number of ITL records to display. Valid range 1-{flow_limit}. Default = {flow_limit}
       --lun               <lun_id>            Specifies LUN ID in the format XXXX-XXXX-XXXX-XXXX
       --module            <mod1,mod2>         Specifies module list for --evaluate-npuload option example 1,2
+      --namespace         <namespace_id>      Specifies namespace in the the range 1-255
+      --nvme                                  Provides NVMe related stats.
       --progress                              Provides progress for --top option. Should not be used on console
       --refresh                               Refreshes output of --outstanding-io
       --target            <target_fcid>       Specifies target FCID in the format 0xDDAAPP
       --vsan              <vsan_number>       Specifies vsan number
 
-Note: --interface can take range of interfaces in case of --evaluate-npuload and port-channel only in case of --vsan-thput
+Note:
+  --interface can take range of interfaces in case of --evaluate-npuload and port-channel only in case of --vsan-thput
+  --initiator-itn or --target-itn options are supported from NXOS version 8.4(1) onwards
+  --nvme or --namespace arguments are supported from NXOS version 8.4(1) onwards
 '''.format(flow_limit=max_flow_limit)
     return True
 
@@ -2523,20 +2629,25 @@ argparse.ArgumentParser.print_help = print_util_help
 
 # argument parsing
 parser = argparse.ArgumentParser(prog='ShowAnalytics', description='ShowAnalytics')
-parser.add_argument('--version', action='version', help='version', version='%(prog)s 2.0.6')
+parser.add_argument('--version', action='version', help='version', version='%(prog)s 2.2.0')
 parser.add_argument('--info', action="store_true", help='--info | --errors mandatory')
+parser.add_argument('--nvme', action="store_true", help='Displays NVMe related stats')
 parser.add_argument('--minmax', action="store_true", help='Displays Min/Max/Peak ITL view')
 parser.add_argument('--errors', action="store_true", help='--info | --errors mandatory')
 parser.add_argument('--errorsonly', action="store_true", help='--info | --errors | --errorsonly  mandatory')
 parser.add_argument('--vsan-thput', action="store_true",help=' To display per vsan traffic rate for interface')
-
+parser.add_argument('--initiator-it', action="store_true", help='--initiator-it | --target-it mandatory')
+parser.add_argument('--target-it', action="store_true", help='--initiator-it | --target-it mandatory')
 parser.add_argument('--initiator-itl', action="store_true", help='--initiator-itl | --target-itl mandatory')
+parser.add_argument('--initiator-itn', action="store_true", help='--initiator-itn | --target-itn mandatory')
 parser.add_argument('--target-itl', action="store_true", help='--initiator-itl | --target-itl mandatory')
+parser.add_argument('--target-itn', action="store_true", help='--initiator-itn | --target-itn mandatory')
 parser.add_argument('--interface', dest="interface", help='fc interface')
 parser.add_argument('--vsan', dest="vsan", help='vsan')
 parser.add_argument('--target', dest="target", help='target FCID')
 parser.add_argument('--initiator', dest="initiator", help='initiator FCID')
 parser.add_argument('--lun', dest="lun", help='lun')
+parser.add_argument('--namespace', dest="namespace", help='nvme nsamespace')
 parser.add_argument('--limit', dest="limit", help='Maximum number of ITL records to display. Valid range 1-{flow_limit}. Default = {flow_limit}'.format(flow_limit=max_flow_limit), default=max_flow_limit)
 parser.add_argument('--alias', action="store_true", help='--alias print device-alias info')
 parser.add_argument('--evaluate-npuload', action="store_true", help='To Display per port NPU load')
@@ -2550,13 +2661,16 @@ parser.add_argument('--refresh', action="store_true",help='Auto refresh')
 
 args = parser.parse_args()
 
-if not validateArgs (args):
-    os._exit(1) 
+if args.initiator_itn or args.target_itn:
+    args.nvme = True
     
 sw_ver = getSwVersion()
 if sw_ver is None:
     print 'Unable to get Switch software version'
     os._exit(1)
+
+if not validateArgs (args,sw_ver):
+    os._exit(1) 
 
 date = datetime.datetime.now()
 if not args.errorsonly:
@@ -2574,9 +2688,9 @@ if not json_out and not args.evaluate_npuload:
             print error['getData_str']
     else:
         print "\n\t Table is empty\n"
-else :
+else:
     if args.info:
-        if args.target and args.initiator and args.lun:
+        if args.target and args.initiator and (args.lun or args.namespace):
             displayDetailOverlay(json_out, ver=sw_ver)
         else:
             displayFlowInfoOverlay(json_out, ver=sw_ver)

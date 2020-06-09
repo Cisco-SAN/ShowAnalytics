@@ -1607,7 +1607,6 @@ def main():
 
     x = PrettyTable(["City name", "Area", "Population", "Annual Rainfall"],headers_misc=[['above',['a1','a2','a3'],[1,2,1]],['below',['b1','b2','b3'],[1,2,1]]],footer_fields=[[['f1','f2','f3'],[1,2,1],['l','l','r']]])
     #x = PrettyTable(["City name", "Area", "Population", "Annual Rainfall"])
-    #pdb.set_trace()
     x.sortby = "Population"
     x.reversesort = True
     x.int_format["Area"] = "04d"

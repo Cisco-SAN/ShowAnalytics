@@ -1,11 +1,13 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 ##############################################################
-# Copyright (c) 2019 by Cisco Systems, Inc.
+#Copyright (c) 2019-2020 by cisco Systems, Inc.
+#All rights reserved.
 # Applicable for NX-OS 8.3(1) and above
 ##############################################################
 
 import sys
+sys.path.append('/isan/bin/cli-scripts/')
 import argparse
 import json
 import datetime
@@ -85,14 +87,10 @@ def sig_int_handler(signum, stack):
     '''
     global working_interface
     global prev_wid
-    print '\nReceived ctrl + c'
     if working_interface:
-        print 'Disabling analytics on port {} which is enabled by this utility\
-'.format(working_interface)
         cli.cli('conf t ; interface {} ; no analytics type fc-all\
                 '.format(working_interface))
     if prev_wid is not None:
-        print 'Setting orignal terminal width'
         cli.cli('conf t ; terminal width {}'.format(prev_wid))
     os._exit(1)
 
@@ -117,7 +115,7 @@ def print_status(msgs):
     global error_log
     if sig_hup_flag in ['Armed', None]:
         for msg in msgs:
-            print msg
+            print(msg)
             pline += 1
     error_log.extend(msgs)
 
@@ -183,7 +181,7 @@ def clear_previous_lines(number_of_lines):
     * Returns: None
     **********************************************************************************
     '''
-    for _ in xrange(number_of_lines):
+    for _ in range(number_of_lines):
         sys.stdout.write("\x1b[1A")
         sys.stdout.write("\x1b[2K")
 
@@ -221,7 +219,7 @@ def get_analytics_module():
           ".format('|'.join(analytics_supported_module))
     status, out = cmd_exc(cmd)
     if not status:
-        print out
+        print(out)
         # print 'Unable to find analytics supported module'
         return []
     else:
@@ -240,8 +238,8 @@ def get_up_ints_permodule(module):
     status, out = cmd_exc("sh int br | i fc{} | i 'up|trunking' | cut -d ' ' \
                            -f 1".format(module))
     if not status:
-        print out
-        print 'Unable to find any up interface in module {}'.format(module)
+        print(out)
+        print('Unable to find any up interface in module {}'.format(module))
         return []
     else:
         return [i for i in out.split('\n') if i.startswith('fc') and '/' in i]
@@ -427,14 +425,14 @@ def parse_module(module_str):
             try:
                 st, en = [i for i in mod.split('-') if i.isdigit()]
             except (IndexError, ValueError):
-                print "Invalid module {}".format(mod)
+                print("Invalid module {}".format(mod))
                 return []
             module.extend(range(int(st), int(en)+1))
         else:
             if mod.isdigit():
                 module.append(mod)
             else:
-                print "Invalid module {}".format(mod)
+                print("Invalid module {}".format(mod))
     return module
 
 
@@ -450,30 +448,30 @@ def parse_intlist(intlist_str):
     '''
     intlist = []
     if 'port-channel' in intlist_str:
-        print 'port-channel is not supported for --evaluate-npuload option'
+        print('port-channel is not supported for --evaluate-npuload option')
         return []
     for inte in intlist_str.split(','):
         if '-' in inte:
             start_int, end_int = [i.strip() for i in inte.split('-')]
             if not start_int.startswith('fc'):
-                print "Invalid interface {}".format(start_int)
+                print("Invalid interface {}".format(start_int))
                 return []
             try:
                 start_mod, start_port = [i for i in start_int[2:].split('/')
                                          if i.isdigit()]
             except (IndexError, ValueError):
-                print "Invalid interface {}".format(start_int)
+                print("Invalid interface {}".format(start_int))
                 return []
             if end_int.startswith('fc'):
                 try:
                     end_mod, end_port = [i for i in end_int[2:].split('/')
                                          if i.isdigit()]
                 except (IndexError, ValueError):
-                    print "Invalid interface {}".format(end_int)
+                    print("Invalid interface {}".format(end_int))
                     return []
                 if start_mod != end_mod:
-                    print "Invalid interface range {} as start and end \
-module number are different".format(inte)
+                    print("Invalid interface range {} as start and end \
+module number are different".format(inte))
                     return []
                 intlist.extend(['fc'+str(start_mod)+'/'+str(i)
                                 for i in range(int(start_port),
@@ -481,7 +479,7 @@ module number are different".format(inte)
 
             else:
                 if not end_int.isdigit():
-                    print "Invalid Interface range {}".format(inte)
+                    print("Invalid Interface range {}".format(inte))
                     return []
                 else:
                     intlist.extend(['fc'+str(start_mod)+'/'+str(i)
@@ -492,7 +490,7 @@ module number are different".format(inte)
             if re.match(r'fc\d+\/\d+', inte):
                 intlist.append(inte)
             else:
-                print 'Invalid interface {}'.format(inte)
+                print('Invalid interface {}'.format(inte))
                 return []
 
     return intlist
@@ -510,10 +508,10 @@ def time_formator(sec_count):
     '''
     out = ''
     if sec_count > 3600:
-        out += '{} hours '.format(sec_count/3600)
+        out += '{} hours '.format(sec_count//3600)
         sec_count = sec_count % 3600
     if sec_count > 60:
-        out += '{} minutes '.format(sec_count/60)
+        out += '{} minutes '.format(sec_count//60)
         sec_count = sec_count % 60
     out += '{} seconds'.format(sec_count)
     return out
@@ -532,7 +530,7 @@ def calculate_max_sample_window(iops_list, flow_list):
     '''
     iops_list.sort(reverse=True)
     flow_list.sort(reverse=True)
-    for i in xrange(1, len(iops_list)+1):
+    for i in range(1, len(iops_list)+1):
         if sum(iops_list[:i]) == 100:
             return i
         if sum(flow_list[:i]) == 20000:
@@ -557,8 +555,8 @@ def check_analytics_conf_per_module(mod):
     status, out = cmd_exc("show analytics port-sampling module {} | i fc\
                           ".format(mod))
     if not status:
-        print out
-        print 'Unable to get analytics configuration for module {}'.format(mod)
+        print(out)
+        print('Unable to get analytics configuration for module {}'.format(mod))
         return True
     if out != '':
         return True
@@ -596,24 +594,24 @@ def validateArgs(arg, swver):
     if args.initiator_itn or args.target_itn or args.nvme:
         ver1 = ''.join([i for i in swver if i.isdigit()])
         if int(ver1) < 841 or len(ver1) < 3:
-            print "NVMe is not compatible with NXOS version {0}".format(swver)
+            print("NVMe is not compatible with NXOS version {0}".format(swver))
             return False
 
     if (not args.info and not args.errors and not args.errorsonly and not
             args.minmax and not args.evaluate_npuload and not
             args.vsan_thput and not args.top and not args.outstanding_io):
-        print "\n Please choose an action via --info or \
+        print("\n Please choose an action via --info or \
 --minmax or --errors or --errorsonly or --evaluate-npuload or \
---vsan-thput or --top or --outstanding-io option\n"
+--vsan-thput or --top or --outstanding-io option\n")
         return False
 
     if (int(args.info) + int(args.minmax) + int(args.errors) +
             int(args.errorsonly) + int(args.evaluate_npuload) +
             int(args.vsan_thput) + int(args.top) +
             int(args.outstanding_io) > 1):
-        print "\nPlease choose a single option out of --info,\
+        print("\nPlease choose a single option out of --info,\
 --errors, --errorsonly, --minmax, --evaluate-npuload, \
---vsan-thput, --top and --outstanding-io \n"
+--vsan-thput, --top and --outstanding-io \n")
         return False
 
     if (not args.initiator_itl and not args.target_itl and not
@@ -621,90 +619,90 @@ def validateArgs(arg, swver):
             args.initiator_itn and not args.target_itn and not
             args.evaluate_npuload and not args.vsan_thput and not
             args.top and not args.outstanding_io):
-        print "\n Please choose a table type via --initiator-itl \
+        print("\n Please choose a table type via --initiator-itl \
 or --target-itl or --initiator-it or --target-it or \
---initiator-itn or --target-itn option\n"
+--initiator-itn or --target-itn option\n")
         return False
 
     if (int(args.initiator_itl) + int(args.target_itl) +
             int(args.initiator_it) + int(args.target_it) +
             int(args.initiator_itn) + int(args.target_itn) > 1):
-        print "\n Please choose a single table type via --initiator-itl \
+        print("\n Please choose a single table type via --initiator-itl \
 or --target-itl or --initiator-it or --target-it or --initiator-itn \
-or --target-itn\n"
+or --target-itn\n")
         return False
 
     if args.nvme and args.evaluate_npuload:
-        print "--nvme option is not required for --evaluate-npuload. \
-It by default consider both scsi and nvme"
+        print("--nvme option is not required for --evaluate-npuload. \
+It by default consider both scsi and nvme")
         return False
 
     if args.nvme and (args.initiator_itl or args.target_itl):
-        print 'To get NVMe stats select --initiator-itn or --target-itn option'
+        print('To get NVMe stats select --initiator-itn or --target-itn option')
         return False
 
     if args.namespace:
         if not args.nvme:
-            print "--namespace argument is only supported with --nvme or \
---initiator-itn or --target-itn"
+            print("--namespace argument is only supported with --nvme or \
+--initiator-itn or --target-itn")
             return False
         if not (args.initiator_itn or args.target_itn or args.top or
                 args.outstanding_io):
-            print "--namespace argument is not supported with current option"
+            print("--namespace argument is not supported with current option")
             return False
 
     if args.initiator:
         try:
             initiator_id = int(args.initiator, 16)
             if initiator_id >> 32:
-                print "Please enter a valid initiator id in hexadecimal format"
+                print("Please enter a valid initiator id in hexadecimal format")
                 return False
         except ValueError:
-            print "Please enter a valid initiator id in hexadecimal format"
+            print("Please enter a valid initiator id in hexadecimal format")
             return False
 
     if args.target:
         try:
             target_id = int(args.target, 16)
             if target_id >> 32:
-                print "Please enter a valid target id in hexadecimal format"
+                print("Please enter a valid target id in hexadecimal format")
                 return False
         except ValueError:
-            print "Please enter a valid target id in hexadecimal format"
+            print("Please enter a valid target id in hexadecimal format")
             return False
 
     if args.alias:
         if not (args.errors or args.errorsonly or args.info or args.minmax or
                 args.top):
-            print "\n Alias option is only supported with --errors or \
---errorsonly or --info or --minmax or --top\n"
+            print("\n Alias option is only supported with --errors or \
+--errorsonly or --info or --minmax or --top\n")
             return False
     if args.lun:
         lun = "0x" + ((args.lun).replace("-", ""))[::-1]
         try:
             lun_id = int(lun, 16)
             if lun_id >> 64:
-                print "Please enter a valid lun id in \
-xxxx-xxxx-xxxx-xxxx format"
+                print("Please enter a valid lun id in \
+xxxx-xxxx-xxxx-xxxx format")
                 return False
         except ValueError:
-            print "Please enter a valid lun id in xxxx-xxxx-xxxx-xxxx format"
+            print("Please enter a valid lun id in xxxx-xxxx-xxxx-xxxx format")
             return False
 
     if ((args.initiator_itl or args.target_itl or args.initiator_it or
-         args.target_it) and (not (args.info or args.errors or
+         args.target_it or args.target_itn or args.initiator_itn ) and (not (args.info or args.errors or
                                    args.minmax or args.errorsonly))):
-        print "--initiator-itl or --target-itl or --initiator-it or \
+        print("--initiator-itl or --target-itl or --initiator-itn or --target-itn or --initiator-it or \
 --target-it is only supported with --info or --errors or \
---errorsonly or --minmax"
+--errorsonly or --minmax")
         return False
 
     if args.limit:
         try:
             args.limit = int(args.limit)
         except ValueError:
-            print "--limit supports integer value from 1 to {}\
-".format(max_flow_limit)
+            print("--limit supports integer value from 1 to {}\
+".format(max_flow_limit))
             return False
         if args.top:
             if args.limit <= 10:
@@ -712,46 +710,46 @@ xxxx-xxxx-xxxx-xxxx format"
                 top_count = args.limit
                 args.limit = 20000
             elif args.limit != 20000:
-                print '--top supports maximum limit of 10'
+                print('--top supports maximum limit of 10')
                 return False
         if (args.limit > int(max_flow_limit)) or (args.limit < 1):
-            print "--limit supports integer value from 1 to {}\
-".format(max_flow_limit)
+            print("--limit supports integer value from 1 to {}\
+".format(max_flow_limit))
             return False
 
     if args.key:
         if not args.top:
-            print "--key only works with --top option"
+            print("--key only works with --top option")
             return False
         try:
             args.key = args.key.upper()
         except AttributeError:
-            print '--key can only take thput or iops or ect'
+            print('--key can only take thput or iops or ect')
             return False
         if args.key not in ['IOPS', 'THPUT', 'ECT']:
-            print " {0}  is not a valid key".format(args.key)
+            print(" {0}  is not a valid key".format(args.key))
             return False
     if args.progress:
         if not args.top:
-            print "--progress only works with --top option"
+            print("--progress only works with --top option")
             return False
 
     if args.module:
         if not args.evaluate_npuload:
-            print "--module only works with --evaluate-npuload"
+            print("--module only works with --evaluate-npuload")
             return False
         if args.interface:
-            print "--module is not supported with --interface"
+            print("--module is not supported with --interface")
             return False
         module = parse_module(args.module)
         analytics_mods = get_analytics_module()
         invalid_module = [i for i in module if i not in analytics_mods]
         if invalid_module != []:
-            print 'Module {} does not support analytics or is not present\
-'.format(",".join(invalid_module))
+            print('Module {} does not support analytics or is not present\
+'.format(",".join(invalid_module)))
             module = [i for i in module if i not in invalid_module]
         if module == []:
-            print "Please provide valid module list"
+            print("Please provide valid module list")
             return False
         args.module = module
 
@@ -761,16 +759,16 @@ xxxx-xxxx-xxxx-xxxx format"
 
         if not args.evaluate_npuload:
             if ',' in args.interface:
-                print 'Please provide Single interface only'
+                print('Please provide Single interface only')
                 return False
             if not re.match(r'fc\d+\/\d+', args.interface):
                 if ((not args.vsan_thput) or
                         (not re.match(r'port-channel\d+', args.interface))):
-                    print 'Please provide Valid Interface'
+                    print('Please provide Valid Interface')
                     return False
 
         if args.module:
-            print "--interface is not supported with --module"
+            print("--interface is not supported with --module")
             return False
         if args.evaluate_npuload:
             intlist = parse_intlist(args.interface)
@@ -784,13 +782,13 @@ xxxx-xxxx-xxxx-xxxx format"
                                      port-channel {0} | i up".format(pc_num))
                 intlist = re.findall(r'fc\d+\/\d+', po_mem_out)
                 if intlist == []:
-                    print "Port-channel {0} has no operational member\
-".format(pc_num)
+                    print("Port-channel {0} has no operational member\
+".format(pc_num))
                     return False
-                intlist1 = filter(check_port_is_analytics_enabled, intlist)
+                intlist1 = [k for k in intlist if check_port_is_analytics_enabled(k)]
                 if intlist1 != intlist:
-                    print "Some members of {} does not support analytics or \
-analytics is not enabled on them".format(args.interface)
+                    print("Some members of {} does not support analytics or \
+analytics is not enabled on them".format(args.interface))
                     return False
         if args.evaluate_npuload:
             analytics_mods = get_analytics_module()
@@ -798,11 +796,11 @@ analytics is not enabled on them".format(args.interface)
                                i.strip().split('/')[0][2:]
                                not in analytics_mods]
             if invalid_intlist != []:
-                print 'Interface {} does not support analytics\
-'.format(",".join(invalid_intlist))
+                print('Interface {} does not support analytics\
+'.format(",".join(invalid_intlist)))
             intlist = [i for i in intlist if i not in invalid_intlist]
             if intlist == []:
-                print "Please provide valid interface"
+                print("Please provide valid interface")
                 return False
 
             interface_list = intlist
@@ -815,18 +813,18 @@ analytics is not enabled on them".format(args.interface)
 
     if args.vsan_thput:
         if args.alias or args.initiator or args.target or args.module:
-            print '--vsan-thput only supports --interface argument'
+            print('--vsan-thput only supports --interface argument')
             return False
 
     if args.outstanding_io:
         if args.interface is None:
-            print "--outstanding-io is interface specific option .. \
-Please specify interface and try again"
+            print("--outstanding-io is interface specific option .. \
+Please specify interface and try again")
             return False
 
     if args.refresh:
         if not args.outstanding_io:
-            print '--refresh is only supported with --outstanding-io'
+            print('--refresh is only supported with --outstanding-io')
             return False
     return True
 
@@ -927,10 +925,10 @@ def getMinMaxAvg(min_col, max_col, total_col, count_col):
 
     if (total_col in json_out['values']['1'] and count_col
             in json_out['values']['1'] and
-            long(json_out['values']['1'][count_col]) > 0):
+            int(float(json_out['values']['1'][count_col])) > 0):
         try:
-            avg_val = (long(json_out['values']['1'][total_col])
-                       / long(json_out['values']['1'][count_col]))
+            avg_val = (int(float(json_out['values']['1'][total_col]))
+                       / int(float(json_out['values']['1'][count_col])))
         except ZeroDivisionError:
             avg_val = 0
 
@@ -960,7 +958,7 @@ def getAnalyticsEnabledPorts():
     sizeJson = len(j_s['values'])
     counter = 1
     while counter <= sizeJson:
-        for key, value in j_s['values'][str(counter)].iteritems():
+        for key, value in j_s['values'][str(counter)].items():
             if str(key) == 'port':
                 if value not in out:
                     out.append(str(value))
@@ -1011,13 +1009,13 @@ def vsanNormalizer(vsan_str):
                 start_vsan, end_vsan = map(int, vsan_range)
                 out.extend(range(start_vsan, end_vsan+1))
             except (TypeError, ValueError, IndexError):
-                print "Unable to Parse Vsan range {}".format(vsan_ins)
+                print("Unable to Parse Vsan range {}".format(vsan_ins))
                 continue
         else:
             try:
                 out.append(int(vsan_ins))
             except (TypeError, AttributeError, ValueError):
-                print "Unable to Parse Vsan range {}".format(vsan_ins)
+                print("Unable to Parse Vsan range {}".format(vsan_ins))
                 continue
     return out
 
@@ -1036,7 +1034,7 @@ def getVsansPerEPort(prt):
         upvsan_out = cli.cli('show interface '+str(prt)+' | i up')
         out1 = re.search(r'\(up\)\s+\(([0-9-,]+)\)', upvsan_out)
     except Exception:
-        print 'Unknown Interface '+str(prt)
+        print('Unknown Interface '+str(prt))
         exit()
     if out1 is not None:
         out.extend(vsanNormalizer(out1.group(1)))
@@ -1125,14 +1123,14 @@ def displayDetailOverlay(json_out, ver=None):
     t.align['Max  '] = 'r'
     t.align['Avg  '] = 'r'
 
-    print
-    print 'B: Bytes, s: Seconds, Avg: Average, Acc: Accumulative,'
-    print 'ns: Nano Seconds, ms: Milli Seconds, us: Micro Seconds,'
-    print 'GB: Giga Bytes, MB: Mega Bytes, KB: Killo Bytes,'
-    print 'ECT: Exchange Completion Time, DAL: Data Access Latency'
-    print
+    print()
+    print('B: Bytes, s: Seconds, Avg: Average, Acc: Accumulative,')
+    print('ns: Nano Seconds, ms: Milli Seconds, us: Micro Seconds,')
+    print('GB: Giga Bytes, MB: Mega Bytes, KB: Killo Bytes,')
+    print('ECT: Exchange Completion Time, DAL: Data Access Latency')
+    print()
     if 'port' in json_out['values']['1']:
-        print '\nInterface : ' + json_out['values']['1']['port']
+        print('\nInterface : ' + json_out['values']['1']['port'])
 
     if args.alias:
         vsan = json_out['values']['1']['vsan']
@@ -1141,12 +1139,12 @@ def displayDetailOverlay(json_out, ver=None):
         if (str(args.initiator), int(vsan)) in fcid2pwwn:
             init_pwwn = fcid2pwwn[(str(args.initiator), int(vsan))]
             if init_pwwn in pwwn2alias:
-                print "Initiator Device-alias : {}\
-".format(pwwn2alias[init_pwwn])
+                print("Initiator Device-alias : {}\
+".format(pwwn2alias[init_pwwn]))
         if (str(args.target), int(vsan)) in fcid2pwwn:
             tar_pwwn = fcid2pwwn[(str(args.target), int(vsan))]
             if tar_pwwn in pwwn2alias:
-                print "Target Device-alias : {}".format(pwwn2alias[tar_pwwn])
+                print("Target Device-alias : {}".format(pwwn2alias[tar_pwwn]))
 
     conv = {'read_io_rate': 'Read  IOPS',
             'write_io_rate': 'Write IOPS',
@@ -1185,7 +1183,7 @@ def displayDetailOverlay(json_out, ver=None):
     col_values.append('Read  Size         (Acc Avg)')
     miin, maax, avg = getMinMaxAvg('read_io_size_min', 'read_io_size_max',
                                    trib, tric).split('/')
-    col_values.extend(map(lambda x: "{} B".format(x) if int(x) != 0 else 0,
+    col_values.extend(map(lambda x: "{} B".format(x) if int(float(x)) != 0 else 0,
                           [miin, maax, avg]))
     t.add_row(col_values)
 
@@ -1193,7 +1191,7 @@ def displayDetailOverlay(json_out, ver=None):
     col_values.append('Write Size         (Acc Avg)')
     miin, maax, avg = getMinMaxAvg('write_io_size_min', 'write_io_size_max',
                                    twib, twic).split('/')
-    col_values.extend(map(lambda x: "{} B".format(x) if int(x) != 0 else 0,
+    col_values.extend(map(lambda x: "{} B".format(x) if int(float(x)) != 0 else 0,
                           [miin, maax, avg]))
     t.add_row(col_values)
 
@@ -1240,7 +1238,7 @@ def displayDetailOverlay(json_out, ver=None):
     col_values = []
     col_values.append('Read  Inter-IO-Gap (Acc Avg)')
     min_read_io_gap, max_read_io_gap, avg_read_io_gap = \
-        [tick_to_time(int(i)) for i in
+        [tick_to_time(int(float(i))) for i in
          getMinMaxAvg('read_io_inter_gap_time_min',
                       'read_io_inter_gap_time_max',
                       'total_read_io_inter_gap_time',
@@ -1253,7 +1251,7 @@ def displayDetailOverlay(json_out, ver=None):
     col_values = []
     col_values.append('Write Inter-IO-Gap (Acc Avg)')
     min_write_io_gap, max_write_io_gap, avg_write_io_gap = \
-        [tick_to_time(int(i)) for i in
+        [tick_to_time(int(float(i))) for i in
          getMinMaxAvg('write_io_inter_gap_time_min',
                       'write_io_inter_gap_time_max',
                       'total_write_io_inter_gap_time',
@@ -1263,7 +1261,7 @@ def displayDetailOverlay(json_out, ver=None):
                        "{}".format(avg_write_io_gap)])
     t.add_row(col_values)
 
-    print t
+    print(t)
 
 
 def displayFlowInfoOverlay(json_out, ver=None):
@@ -1309,7 +1307,7 @@ def displayFlowInfoOverlay(json_out, ver=None):
     else:
         pre_a = {}
         while counter <= sizeJson:
-            for key, value in json_out['values'][str(counter)].iteritems():
+            for key, value in json_out['values'][str(counter)].items():
                 if str(key) == 'port':
                     port = value
                     continue
@@ -1371,7 +1369,7 @@ def displayFlowInfoOverlay(json_out, ver=None):
             (peak_read_iops, peak_write_iops, peak_read_thput,
              peak_write_thput, read_ect_min, read_ect_max,
              write_ect_min, write_ect_max) = (0, 0, 0, 0, 0, 0, 0, 0)
-        for key, value in json_out['values'][str(counter)].iteritems():
+        for key, value in json_out['values'][str(counter)].items():
             if str(key) == 'port':
                 port = value
                 continue
@@ -1455,7 +1453,7 @@ def displayFlowInfoOverlay(json_out, ver=None):
                 + '::' + str(peak_write_thput) + '::' + str(read_ect_min) \
                 + '::' + str(read_ect_max) + '::' + str(write_ect_min) \
                 + '::' + str(write_ect_max)
-            max_iops = max(peak_write_iops, peak_read_thput, max_iops)
+            max_iops = max([int(i) for i in (peak_write_iops, peak_read_thput, max_iops)])
         else:
             itl_id = str(port) + '::' + str(vsan) + '::' + str(initiator) \
                 + '::' + str(target) + '::' + str(lun)
@@ -1471,12 +1469,12 @@ def displayFlowInfoOverlay(json_out, ver=None):
             diff_writeCount = int(writeCount)-int(prev_writecount)
             if diff_readCount != 0:
                 ectR = abs(int(totalread) -
-                           int(prev_totalread)) / diff_readCount
+                           int(prev_totalread)) // diff_readCount
             if diff_writeCount != 0:
                 ectW = abs(int(totalwrite) -
-                           int(prev_totalwrite)) / diff_writeCount
+                           int(prev_totalwrite)) // diff_writeCount
             a = a + '::' + str(ectR) + '::' + str(ectW)
-            max_iops = max(max_iops, iopsR, iopsW)
+            max_iops = max([int(i) for i in (max_iops, iopsR, iopsW)])
         counter = counter + 1
         if args.alias:
             ali_str, tisAliasValid = alias_maker(initiator, target, fcid2pwwn,
@@ -1543,7 +1541,10 @@ def displayFlowInfoOverlay(json_out, ver=None):
         t.add_row(col_names_desc)
         t.add_row(col_names_empty)
 
-        print "\n Interface " + port
+        if args.nvme:
+            t.align[col_names[0]] = 'l'
+
+        print("\n Interface " + port)
         for l in port_metrics[port]:
             col_values = []
             parts = []
@@ -1565,6 +1566,7 @@ def displayFlowInfoOverlay(json_out, ver=None):
                 col_values.append("{0:>9} |{1:>10}"
                                   .format(time_conv(float(parts[11])),
                                           time_conv(float(parts[12]))))
+
             if args.alias:
                 t.align["{0:^{w}}".format('Initiator Device alias',
                                           w=max_init_alias_len)] = 'l'
@@ -1574,10 +1576,10 @@ def displayFlowInfoOverlay(json_out, ver=None):
                                    str(parts[part_alias_t])])
             t.add_row(col_values)
 
-        print t
+        print(t)
     if args.minmax:
-        print '*These values are calculated since the metrics were last \
-cleared.'
+        print('*These values are calculated since the metrics were last \
+cleared.')
 
     # setting back orignal terminal width
     if args.alias:
@@ -1642,7 +1644,7 @@ def displayErrorsOverlay(json_out, date, ver=None):
         a = ''
         failR, abortsR = 0, 0
         failW, abortsW = 0, 0
-        for key, value in json_out['values'][str(counter)].iteritems():
+        for key, value in json_out['values'][str(counter)].items():
             # print key,value
             if str(key) == 'port':
                 port = value
@@ -1696,11 +1698,13 @@ def displayErrorsOverlay(json_out, date, ver=None):
                 + str(lun)
             displaydateFlag = True
 
+    
+    itl_str = 'ITNs' if args.nvme else 'ITLs'
     if args.errorsonly:
         if displaydateFlag:
-            print date
+            print(date)
         else:
-            print "\n No ITLs with errors found\n"
+            print("\n No {0} with errors found\n".format(itl_str))
 
     port_metrics = {}
     for l in metrics:
@@ -1734,7 +1738,10 @@ def displayErrorsOverlay(json_out, date, ver=None):
         t.add_row(col_names_empty)
         # t.align = "l"
 
-        print "\n Interface " + port
+        if args.nvme:
+            t.align[col_names[0]] = 'l'
+
+        print("\n Interface " + port)
         for l in port_metrics[port]:
             col_values = []
             parts = []
@@ -1750,7 +1757,7 @@ def displayErrorsOverlay(json_out, date, ver=None):
             if args.alias:
                 col_values.extend([str(parts[9]), str(parts[10])])
             t.add_row(col_values)
-        print t
+        print(t)
 
 
 def displayNpuloadEvaluation(json_out, ver=None):
@@ -1790,18 +1797,18 @@ def displayNpuloadEvaluation(json_out, ver=None):
         module = args.module
     if 'module' in dir():
         if module == []:
-            print '\nNo analytics enabled module found.\n'
+            print('\nNo analytics enabled module found.\n')
             sys.exit(1)
         else:
             analytics_interface_configured_modules = \
-                filter(check_analytics_conf_per_module, module)
+                [k for k in module if check_analytics_conf_per_module(k)]
             if analytics_interface_configured_modules != []:
-                print 'Execution terminated as analytics is configured on \
-interface of following module:'
+                print('Execution terminated as analytics is configured on \
+interface of following module:')
                 for mod in analytics_interface_configured_modules:
-                    print ' Module {}'.format(mod)
-                print 'Note: --evaluate-npuload option should only be run \
-prior to configuring analytics'
+                    print(' Module {0}'.format(mod))
+                print('Note: --evaluate-npuload option should only be run \
+prior to configuring analytics')
                 sys.exit(1)
             interface_list = []
             for mod in module:
@@ -1815,21 +1822,21 @@ prior to configuring analytics'
                     if not check_analytics_conf_per_module(mod):
                         passed_modules.append(mod)
                     else:
-                        print 'Execution terminated as analytics is \
-configured on interface of module {}'.format(mod)
-                        print 'Note: --evaluate-npuload option should only be \
-run prior to configuring analytics'
+                        print('Execution terminated as analytics is \
+configured on interface of module {}'.format(mod))
+                        print('Note: --evaluate-npuload option should only be \
+run prior to configuring analytics')
                         sys.exit(1)
 
     if interface_list == []:
-        print 'No Up port found on device capable for analytics'
+        print('No Up port found on device capable for analytics')
         sys.exit(1)
 
     int_count = len(interface_list)
     expected_time = int_count*60
-    print 'There are {} interfaces to be evaluated. Expected time is {}\
-'.format(int_count, time_formator(expected_time))
-    conf_response = str(raw_input('Do you want to continue [Yes|No]? [n]'))
+    print('There are {} interfaces to be evaluated. Expected time is {}\
+'.format(int_count, time_formator(expected_time)))
+    conf_response = str(input('Do you want to continue [Yes|No]? [n]'))
     if conf_response not in ['Y', 'y', 'Yes', 'yes', 'YES']:
         return False
 
@@ -1840,8 +1847,8 @@ run prior to configuring analytics'
         status, out = cmd_exc('configure terminal ;  terminal session-timeout \
             0')
         if not status:
-            print out
-            print 'Unable to set session timeout'
+            print(out)
+            print('Unable to set session timeout')
     mod_matrix = {}
     int_iterator = 0
     pline = 0
@@ -1852,8 +1859,8 @@ run prior to configuring analytics'
                 clear_previous_lines(pline)
                 pline = 0
         if sig_hup_flag in [None, 'Armed']:
-            print 'Evaluating interface {} ({} out of {} interfaces)\
-'.format(inte, int_iterator, int_count)
+            print('Evaluating interface {} ({} out of {} interfaces)\
+'.format(inte, int_iterator, int_count))
             pline = 1
         else:
             cli.cli('logit ShowAnalytics: Evaluating interface \
@@ -1891,7 +1898,7 @@ run prior to configuring analytics'
             except Exception as e:
                 sdb_out = ''
         if inte not in sdb_out:
-            for x in xrange(30):
+            for x in range(30):
                 time.sleep(1)
                 status, sdb_out = cmd_exc("sh analytics port-sampling module \
                                           {0} | i '{1}'".format(mod, inte))
@@ -1908,7 +1915,7 @@ run prior to configuring analytics'
                                                        .strip(),
                                                        '%m/%d/%y %H:%M:%S')
                     except Exception as e:
-                        print e
+                        print(e)
                         continue
                     break
                 elif x == 29:
@@ -1952,7 +1959,7 @@ run prior to configuring analytics'
         itl_count, itn_count, scsi_iops, nvme_iops = 0, 0, 0, 0
         data = ''
         if data_scsi is not None:
-            for key, value in data_scsi['values']['1'].iteritems():
+            for key, value in data_scsi['values']['1'].items():
                 if key == 'sampling_start_time':
                     scsi_sampling_start_time = int(value)
                     start_time = \
@@ -1979,7 +1986,7 @@ run prior to configuring analytics'
             # print 'SCSI Window {}   {}'.format(start_time,end_time)
 
         if data_nvme is not None:
-            for key, value in data_nvme['values']['1'].iteritems():
+            for key, value in data_nvme['values']['1'].items():
                 if key == 'sampling_start_time':
                     start_time = datetime.datetime.fromtimestamp(int(value))\
                         .strftime("%H:%M:%S")
@@ -2030,11 +2037,11 @@ run prior to configuring analytics'
     for mod in mod_matrix:
         mod_iops_list = []
         mod_flow_list = []
-        if mod < 50:
+        if int(mod) < 50:
             if sig_hup_flag not in [None, 'Armed']:
                 file_handler.write("Module {}".format(mod))
             else:
-                print "Module {}".format(mod)
+                print("Module {}".format(mod))
         m_itl_count, m_scsi_iops, m_itn_count, m_nvme_iops = 0, 0, 0, 0
 
         t = PrettyTable(['', ' SCSI ', ' NVMe ', ' Total ', 'SCSI',
@@ -2078,10 +2085,10 @@ run prior to configuring analytics'
                     ".format(calculate_max_sample_window(mod_iops_list,
                                                          mod_flow_list)))
         else:
-            print t
+            print(t)
             if not interface_list_flag:
-                print "Recommended port sampling size: {0}\n\
-".format(calculate_max_sample_window(mod_iops_list, mod_flow_list))
+                print("Recommended port sampling size: {0}\n\
+".format(calculate_max_sample_window(mod_iops_list, mod_flow_list)))
 
     if sig_hup_flag not in [None, 'Armed']:
         file_handler.write('\n')
@@ -2093,12 +2100,12 @@ run prior to configuring analytics'
                 file_handler.write(msg)
         file_handler.close()
     else:
-        print '* This total is an indicative reference based on \
-evaluated ports'
+        print('* This total is an indicative reference based on \
+evaluated ports')
         if error_log != []:
-            print '\nErrors:\n------\n'
+            print('\nErrors:\n------\n')
             for msg in error_log:
-                print msg
+                print(msg)
     cli.cli('logit ShowAnalytics: Task Completed')
 
 
@@ -2123,7 +2130,7 @@ def displayVsanOverlay(json_out, ver=None):
     while counter <= sizeJson:
         port, vsan, read, write, rios, wios, rir, wir = ('', '', '', '',
                                                          '', '', '', '')
-        for key, value in json_out['values'][str(counter)].iteritems():
+        for key, value in json_out['values'][str(counter)].items():
             if str(key) == 'port':
                 port = str(value)
                 continue
@@ -2205,7 +2212,7 @@ def displayVsanOverlay(json_out, ver=None):
                        if not x.startswith('port-channel') else int(x[12:])):
         if port_metrics[port] == {}:
             if interface_list:
-                print "\n\t Table is empty\n"
+                print("\n\t Table is empty\n")
                 sys.exit(1)
             else:
                 continue
@@ -2230,10 +2237,10 @@ def displayVsanOverlay(json_out, ver=None):
                 float(port_metrics[port][vsan][1])
             col.append("{0:.1f}".format(tmp_tb))
             t.add_row(col)
-        print "\n Interface " + port
-        print t
+        print("\n Interface " + port)
+        print(t)
     proto = 'NVMe' if args.nvme else 'SCSI'
-    print 'Note: This data is only for {0}\n'.format(proto)
+    print('Note: This data is only for {0}\n'.format(proto))
 
 
 def displayTop(args, json_out, return_vector, ver=None):
@@ -2301,19 +2308,19 @@ def displayTop(args, json_out, return_vector, ver=None):
                 clear_previous_lines(return_vector[0])
             else:
                 clear_previous_lines(1)
-            print
-            print datetime.datetime.now()
+            print()
+            print(datetime.datetime.now())
             if str1 is not None:
-                print
-                print str1
+                print()
+                print(str1)
             if (str2 is not None) and (str1 != str2):
-                print
-                print str2
+                print()
+                print(str2)
             if str1 == str2 and (str1 is not None):
                 line_count -= (error['line_count']+1)
             tmp_clr_line_count += line_count
             if (str1 is None) and (str2 is None):
-                print "\n\t Table is empty\n"
+                print("\n\t Table is empty\n")
                 tmp_clr_line_count = 5
             return [tmp_clr_line_count, return_vector[1], '']
         else:
@@ -2367,13 +2374,13 @@ def displayTop(args, json_out, return_vector, ver=None):
                         (itl_id in return_vector[2].keys())):
                     rc, tr, wc, tw = [int(i) for i in
                                       return_vector[2][itl_id].split('::')]
-                    ectR = abs((tr-totalread)/(rc-readCount)) \
+                    ectR = abs((tr-totalread)//(rc-readCount)) \
                         if rc != readCount else 0
-                    ectW = abs((tw-totalwrite)/(wc-writeCount)) \
+                    ectW = abs((tw-totalwrite)//(wc-writeCount)) \
                         if wc != writeCount else 0
                 else:
-                    ectR = (totalread / readCount) if readCount != 0 else 0
-                    ectW = (totalwrite / writeCount) if writeCount != 0 else 0
+                    ectR = (totalread // readCount) if readCount != 0 else 0
+                    ectW = (totalwrite // writeCount) if writeCount != 0 else 0
 
                 a = itl_id + '::' + str(ectR) + '::' + str(ectW) \
                     + '::' + str(ectW+ectR)
@@ -2402,8 +2409,8 @@ def displayTop(args, json_out, return_vector, ver=None):
     sTep = 1000
     lm = len(metrics)
     if lm > sTep:
-        d_l, r_l = lm/sTep, lm % sTep
-        for c_li in xrange(1, d_l+1):
+        d_l, r_l =  [int(i) for i in [lm//sTep, lm % sTep]]
+        for c_li in range(1, d_l+1):
             out_metrics.extend(sorted(metrics[(c_li-1)*sTep:(c_li*sTep)],
                                       key=lambda st: int(st.split('::')[7]),
                                       reverse=True)[:top_count])
@@ -2451,6 +2458,9 @@ def displayTop(args, json_out, return_vector, ver=None):
 
     t.add_row(row_val)
 
+    if args.nvme:
+        t.align[col_names[1]] = 'l'
+
     for data in port_metrics:
         if args.alias:
             p, v, i, ta, l, r, w, to, ini_ali, tar_ali = data.split('::')
@@ -2488,16 +2498,16 @@ def displayTop(args, json_out, return_vector, ver=None):
     if return_vector == [None, 2, None]:
         clear_previous_lines(1)
     if str1:
-        print
-        print str1
+        print()
+        print(str1)
     if str2:
-        print
-        print str2
-    print
-    print datetime.datetime.now()
-    print
-    print t
-    print
+        print()
+        print(str2)
+    print()
+    print(datetime.datetime.now())
+    print()
+    print(t)
+    print()
     if args.key == 'ECT':
         return [line_count, return_vector[1], pdata]
     else:
@@ -2527,7 +2537,7 @@ def displayOutstandingIo(json_out, return_vector, ver=None):
     f_ports = getPureFPorts()
     port = args.interface
     if port not in f_ports:
-        print "--outstanding-io is only supported on F Ports"
+        print("--outstanding-io is only supported on F Ports")
         return [None, return_vector[1], None]
         exit()
 
@@ -2563,19 +2573,19 @@ def displayOutstandingIo(json_out, return_vector, ver=None):
                 clear_previous_lines(return_vector[0])
             else:
                 clear_previous_lines(1)
-            print
-            print datetime.datetime.now()
+            print()
+            print(datetime.datetime.now())
             if str1 is not None:
-                print
-                print str1
+                print()
+                print(str1)
             if (str2 is not None) and (str1 != str2):
-                print ''
-                print str2
+                print()
+                print(str2)
             if str1 == str2 and str1 is not None:
                 line_count -= (error['line_count']+1)
             tmp_clr_line_count += line_count
             if (str1 is None) and (str2 is None):
-                print "\n\t Table is empty\n"
+                print("\n\t Table is empty\n")
                 tmp_clr_line_count = 5
             return [tmp_clr_line_count, return_vector[1], '']
         else:
@@ -2611,9 +2621,13 @@ def displayOutstandingIo(json_out, return_vector, ver=None):
     port_metrics = metrics
 
     if not return_vector[0]:
-        flogis = [str(i) for i in flogi(cli.cli("sh flogi database interface \
-            {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
-            ".format(port))).get_fcids(port)]
+        try:
+            flogis = [str(i) for i in flogi(cli.cli("sh flogi database \
+interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
+".format(port))).get_fcids(port)]
+        except Exception as e:
+            print("Unable to check flogi database. This might be NPV device")
+            os._exit(1)
         i, ta = [fcid_Normalizer(z) for z in port_metrics[0].split('::')[2:4]]
 
         fcns_type = None
@@ -2629,9 +2643,9 @@ def displayOutstandingIo(json_out, return_vector, ver=None):
             exc_flag = True
             pass
         vSan = metrics[0].split('::')[1]
-        pdata = "\n Interface : {0}  VSAN : {1}  FCNS_type : {0}\
+        pdata = "\n Interface : {0}  VSAN : {1}  FCNS_type : {2}\
             ".format(port, vSan, fcns_type)
-        print pdata
+        print(pdata)
 
     t = PrettyTable(col_names)
     t.add_row([" ", "Read | Write"])
@@ -2639,6 +2653,9 @@ def displayOutstandingIo(json_out, return_vector, ver=None):
     line_count += 5
 
     qdpth = 0
+
+    if args.nvme:
+        t.align[col_names[0]] = 'l'
 
     for data in port_metrics:
         p, v, i, ta, l, r, w = data.split('::')
@@ -2655,16 +2672,16 @@ def displayOutstandingIo(json_out, return_vector, ver=None):
         clear_previous_lines(return_vector[0])
     if return_vector[0] is not None:
         clear_previous_lines(2)
-        print datetime.datetime.now()
+        print(datetime.datetime.now())
     if return_vector[2]:
         pdata = return_vector[2]
-        print pdata
-    print
-    print t
+        print(pdata)
+    print()
+    print(t)
     if args.limit == max_flow_limit:
-        print "", 'Instantaneous Qdepth :', qdpth
+        print (f" Instantaneous Qdepth : {qdpth}")
         line_count += 1
-    print ''
+    print('')
     return [line_count, return_vector[1], pdata]
 
 
@@ -2679,8 +2696,14 @@ def getSwVersion():
     '''
     try:
         out = cli.cli('sh ver  | i version | i syst').strip()
-        ver = out.split(' ')[-1]
-        return ver
+        for valu in out.split(' '):
+            vmatch = False
+            for str in ['build', 'gdb', 'system', 'version', '\[', '\]']:
+                if str in valu.strip():
+                    vmatch = True
+            if not vmatch and valu.strip() != '':
+                return valu.strip()
+        return None
     except Exception as e:
         return None
 
@@ -2819,7 +2842,7 @@ def getData(args, misc=None, ver=None):
         if args.interface is not None:
             pcre = re.match(r'port-channel(\d+)', args.interface)
             if pcre is not None:
-                print "Port channel is not supported by --top option"
+                print("Port channel is not supported by --top option")
                 exit()
         if args.key is None or args.key == 'IOPS':
             wkey = ['read_io_rate', 'write_io_rate']
@@ -2849,7 +2872,7 @@ def getData(args, misc=None, ver=None):
     if args.outstanding_io:
         pcre = re.match(r'port-channel(\d+)', args.interface)
         if pcre is not None:
-            print "Port channel is not supported by --outstanding-io option"
+            print("Port channel is not supported by --outstanding-io option")
             exit()
         if not misc:
             query = "select port, vsan, initiator_id, \
@@ -2883,6 +2906,7 @@ def getData(args, misc=None, ver=None):
     json_str = ""
 
     query += " limit "+str(args.limit)
+    #print "Executing {0}".format(query)
     try:
         json_str = cli.cli("show analytics query '" + query + "'")
     except cli.cli_syntax_error:
@@ -2895,7 +2919,7 @@ def getData(args, misc=None, ver=None):
 
     try:
         json_out = json.loads(json_str)
-    except ValueError, e:
+    except ValueError as e:
         error['getData_str'] = json_str
         json_out = None
         error_flag = True
@@ -2914,7 +2938,7 @@ def getData(args, misc=None, ver=None):
 
 
 def print_util_help(self):
-    print '''
+    print('''
 ShowAnalytics   --errors <options> | --errorsonly <options> | \
 --evaluate-npuload <options> | --help | --info <options> | \
 --minmax <options> | --outstanding-io <options> | \
@@ -2929,22 +2953,22 @@ OPTIONS :
 --target-itl <args> | --initiator-itn <args> | --target-itn <args> | \
 --initiator-it <args> | --target-it <args>]
 
-      --initiator-itl         Provides errors metrics for initiator ITLs
+      --initiator-itl         Provides errors metrics for SCSI initiator ITLs
                               Args :  [--interface <interface>] \
 [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] \
 [--alias] [--limit <itl_limit>]
-      --target-itl            Provides errors metrics for target ITNs
+      --target-itl            Provides errors metrics for SCSI target ITLs
                               Args :  [--interface <interface>] \
 [--initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] \
 [--alias] [--limit <itl_limit>]
       --initiator-itn         Provides errors metrics for NVMe initiator ITNs
                               Args :  [--interface <interface>] \
 [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] \
-[--limit <itl_limit>] [--namespace <namespace_id>]
+[--limit <itn_limit>] [--namespace <namespace_id>]
       --target-itn            Provides errors metrics for NVMe target ITNs
                               Args :  [--interface <interface>] \
 [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] \
-[--limit <itl_limit>] [--namespace <namespace_id>]
+[--limit <itn_limit>] [--namespace <namespace_id>]
       --initiator-it          Provides errors metrics for initiator ITs
                               Args :  [--interface <interface>] \
 [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] \
@@ -2954,28 +2978,28 @@ OPTIONS :
 [--initiator <initiator_fcid>] [--target <target_fcid>] [--alias] \
 [--limit <itl_limit>] [--nvme]
 
- --errorsonly             Provides error metrics for ITLs. Only display \
-ITLs with non-zero errors.
+ --errorsonly             Provides error metrics for IT(L/N)s. Only display \
+IT(L/N)s with non-zero errors.
                           ShowAnalytics --errorsonly [--\
 initiator-itl <args> | --target-itl <args> | --initiator-itn <args> | --\
 target-itn <args> | --initiator-it <args> | --target-it <args>]
 
-      --initiator-itl         Provides errors metrics for initiator ITLs
+      --initiator-itl         Provides errors metrics for SCSI initiator ITLs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--\
 alias] [--limit <itl_limit>]
-      --target-itl            Provides errors metrics for target ITNs
+      --target-itl            Provides errors metrics for SCSI target ITLs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--\
 lun <lun_id>] [--alias] [--limit <itl_limit>]
       --initiator-itn         Provides errors metrics for NVMe initiator ITNs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--\
-limit <itl_limit>] [--namespace <namespace_id>]
+limit <itn_limit>] [--namespace <namespace_id>]
       --target-itn            Provides errors metrics for NVMe target ITNs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--\
-limit <itl_limit>] [--namespace <namespace_id>]
+limit <itn_limit>] [--namespace <namespace_id>]
       --initiator-it          Provides errors metrics for initiator ITs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--\
@@ -2995,59 +3019,59 @@ and --interface arguments are not present
 
  --help                   Provides help about this utility
 
- --info                   Provide information about ITLs
+ --info                   Provide information about IT(L/N)s
                           ShowAnalytics --info [--\
 initiator-itl <args> | --target-itl <args> | --\
 initiator-itn <args> | --target-itn <args> | --\
 initiator-it <args> | --target-it <args>]
 
-      --initiator-itl         Provides ITL view for initiators ITLs
+      --initiator-itl         Provides ITL view for SCSI initiators ITLs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--\
 lun <lun_id>] [--alias] [--limit <itl_limit>]
-      --target-itl            Provides ITL view for target  ITLs
+      --target-itl            Provides ITL view for SCSI target ITLs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--\
 lun <lun_id>] [--alias] [--limit <itl_limit>]
       --initiator-itn         Provides ITN view for NVMe initiator ITNs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--\
-limit <itl_limit>] [--namespace <namespace_id>]
+limit <itn_limit>] [--namespace <namespace_id>]
       --target-itn            Provides ITN views for NVMe target ITNs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--\
-limit <itl_limit>] [--namespace <namespace_id>]
+limit <itn_limit>] [--namespace <namespace_id>]
       --initiator-it          Provides IT view for initiators ITs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--\
 lun <lun_id>] [--alias] [--limit <itl_limit>] [--nvme]
-      --target-it             Provides IT view for target  ITs
+      --target-it             Provides IT view for target ITs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>]d>] [--\
 alias] [--limit <itl_limit>] [--nvme]
 
- --minmax                 Provide Min/Max/Peak values of ITLs
+ --minmax                 Provide Min/Max/Peak values of IT(L/N)s
                           ShowAnalytics --minmax [--\
 initiator-itl <args> | --target-itl <args> | --\
 initiator-itn <args> | --target-itn <args> | --\
 initiator-it <args> | --target-it <args>]
 
-      --initiator-itl         Provides ITL view for initiators ITLs
+      --initiator-itl         Provides ITL view for SCSI initiators ITLs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--\
 lun <lun_id>] [--alias] [--limit <itl_limit>]
-      --target-itl            Provides ITL view for target  ITLs
+      --target-itl            Provides ITL view for SCSI target ITLs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--\
 lun <lun_id>] [--alias] [--limit <itl_limit>]
       --initiator-itn         Provides ITN view for NVMe initiator ITNs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--\
-limit <itl_limit>] [--namespace <namespace_id>]
+limit <itn_limit>] [--namespace <namespace_id>]
       --target-itn            Provides ITN views for NVMe target ITNs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--alias] [--\
-limit <itl_limit>] [--namespace <namespace_id>]
+limit <itn_limit>] [--namespace <namespace_id>]
       --initiator-it          Provides IT view for initiators ITs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--\
@@ -3057,12 +3081,12 @@ lun <lun_id>] [--alias] [--limit <itl_limit>] [--nvme]
 initiator <initiator_fcid>] [--target <target_fcid>]d>] [--alias] [--\
 limit <itl_limit>] [--nvme]
 
- --outstanding-io         Provides Outstanding io per ITL for an interface
+ --outstanding-io         Provides Outstanding io per IT(L/N) for an interface
                           Args : [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--\
 limit] [--refresh] [--nvme] [--namespace <namespace_id>]
 
- --top                    Provides top ITLs based on key. Default key is IOPS
+ --top                    Provides top IT(L/N)s based on key. Default key is IOPS
                           Args : [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--\
 limit] [--key <IOPS|THPUT|ECT>] [--progress] [--alias] [--nvme] [--\
@@ -3070,7 +3094,7 @@ namespace <namespace_id>]
 
  --version                Provides version details of this utility
 
- --vsan-thput             Provides per vsan scsi traffic rate for interface.
+ --vsan-thput             Provides per vsan scsi/nvme traffic rate for interface.
                           Args : [--interface <interface>] [--nvme]
 
 ARGUMENTS:
@@ -3108,7 +3132,7 @@ and port-channel only in case of --vsan-thput
 version 8.4(1) onwards
   --nvme and --namespace arguments are supported from NXOS \
 version 8.4(1) onwards
-'''.format(flow_limit=max_flow_limit)
+'''.format(flow_limit=max_flow_limit))
     return True
 
 
@@ -3118,7 +3142,7 @@ argparse.ArgumentParser.print_help = print_util_help
 parser = argparse.ArgumentParser(prog='ShowAnalytics',
                                  description='ShowAnalytics')
 parser.add_argument('--version', action='version',
-                    help='version', version='%(prog)s 2.2.1')
+                    help='version', version='%(prog)s 3.0.0')
 parser.add_argument('--info', action="store_true",
                     help='--info | --errors mandatory')
 parser.add_argument('--nvme', action="store_true",
@@ -3170,6 +3194,169 @@ parser.add_argument('--outstanding-io', action="store_true",
 parser.add_argument('--refresh', action="store_true", help='Auto refresh')
 # parser.add_argument('--intlist',dest="intlist", help='int_list')
 
+
+
+
+ 
+if '__cli_script_help' in sys.argv:
+   print('Provide overlay cli for Analytics related stats\n')
+   exit(0)
+if '__cli_script_args_help' in sys.argv:
+    if len(sys.argv) == 2:
+        print('--errors|To display errors stats in all IT(L/N) pairs')
+        print('--errorsonly|To display IT(L/N) flows with errors')
+        print('--evaluate-npuload|To evaluate npuload on system')
+        print('--help|To display help and exit')
+        print('--info|To display information about IT(L/N) flows')
+        print('--minmax|To display min max and peak info about IT(L/N) flows')
+        print('--outstanding-io|To display outstanding io for an interface')
+        print('--top|To display top 10 IT(L/N) Flow')
+        print('--version|To display version of utility and exit')
+        print('--vsan-thput|To display per vsan throughput for interface')
+        exit(0)
+    elif '--interface' == sys.argv[-1]:
+        if '--evaluate-npuload' in sys.argv:
+            print('fc<module>/<start_port>-<end_port>,fc<module>/<port>|Interface range')
+        else:
+            print('fc<module>/<port>|fc Interface')
+        exit(0)
+    elif ('--initiator' == sys.argv[-1]) or ('--target' == sys.argv[-1]):
+        print('0xDDAAPP|Fcid Notation')
+        exit(0)
+    elif ('--vsan' == sys.argv[-1]):
+        print('1-4094|Vsan id')
+        exit(0)
+    elif ('--namespace' == sys.argv[-1]):
+        print(' |Namespace id as whole number')
+        exit(0)
+    elif ('--limit' == sys.argv[-1]):
+        if '--top' not in sys.argv:
+            print('1-{flow-limit}|Result flow count')
+        else:
+            print('1-10|Result flow count')
+        exit(0)
+    elif '--lun' == sys.argv[-1]:
+        print('XXXX-XXXX-XXXX-XXXX|Lun Notation')
+        exit(0)
+    elif '--key' == sys.argv[-1]:
+        print('IOPS|To Provide result based on iops')
+        print('ECT|To Provide result based on ect')
+        print('THPUT|To Provide reslut based on throughput')
+        exit(0)
+    elif '--module' == sys.argv[-1]:
+        print('1-3,5|module range to be considered')
+        exit(0) 
+    elif ('--errors' in sys.argv) or ('--errorsonly' in sys.argv) or ('--info' in sys.argv) or ('--minmax' in sys.argv):
+        if ('--initiator-itl' in sys.argv) or ('--target-itl' in sys.argv):
+            if '--alias' not in sys.argv:
+                print('--alias|Prints device-alias for initiator and target. Terminal Emulator should support 511 width size.')
+            if '--initiator' not in sys.argv:
+                print('--initiator|Provide initiator FCID in the format 0xDDAAPP')
+            if '--interface' not in sys.argv:
+                print('--interface|Provide Interface in format module/port')
+            if '--limit' not in sys.argv:
+                print('--limit| Maximum number of ITL records to display. Valid range 1-{flow_limit}. Default = {flow_limit}'.format(flow_limit=max_flow_limit))
+            if '--lun' not in sys.argv:
+                print('--lun|Provide LUN ID in the format XXXX-XXXX-XXXX-XXXX')
+            if '--target' not in sys.argv:
+                print('--target|Provide target FCID in the format 0xDDAAPP')
+            if '--vsan' not in sys.argv:
+                print('--vsan|Provide vsan number')
+        elif ('--initiator-it' in sys.argv) or ('--target-it' in sys.argv):
+            if '--alias' not in sys.argv:
+                print('--alias|Prints device-alias for initiator and target. Terminal Emulator should support 511 width size.')
+            if '--initiator' not in sys.argv:
+                print('--initiator|Provide initiator FCID in the format 0xDDAAPP')
+            if '--interface' not in sys.argv:
+                print('--interface|Provide Interface in format module/port')
+            if '--limit' not in sys.argv:
+                print('--limit| Maximum number of ITL records to display. Valid range 1-{flow_limit}. Default = {flow_limit}'.format(flow_limit=max_flow_limit))
+            if '--target' not in sys.argv:
+                print('--target|Provide target FCID in the format 0xDDAAPP')
+            if '--vsan' not in sys.argv:
+                print('--vsan|Provide vsan number')
+        elif ('--initiator-itn' in sys.argv) or ('--target-itn' in sys.argv):
+            if '--alias' not in sys.argv:
+                print('--alias|Prints device-alias for initiator and target. Terminal Emulator should support 511 width size.')
+            if '--initiator' not in sys.argv:
+                print('--initiator|Provide initiator FCID in the format 0xDDAAPP')
+            if '--interface' not in sys.argv:
+                print('--interface|Provide Interface in format module/port')
+            if '--limit' not in sys.argv:
+                print('--limit| Maximum number of ITL records to display. Valid range 1-{flow_limit}. Default = {flow_limit}'.format(flow_limit=max_flow_limit))
+            if '--namespace' not in sys.argv:
+                print('--namespace|Provide NVMe Namespace id')
+            if '--target' not in sys.argv:
+                print('--target|Provide target FCID in the format 0xDDAAPP')
+            if '--vsan' not in sys.argv:
+                print('--vsan|Provide vsan number')
+        else:
+            print('--initiator-itl|Prints SCSI initiator side stats')
+            print('--target-itl|Prints SCSI target side stats')
+            print('--initiator-itn|Prints NVMe initiator side stats')
+            print('--target-itn|Prints NVMe target side stats')
+            print('--initiator-it|Prints initiator side stats')
+            print('--target-it|Prints target side stats')
+
+        exit(0)
+    elif '--evaluate-npuload' in sys.argv:
+        if '--interface' not in sys.argv:
+            print('--interface|Provide Interface single or multiple')
+        if '--module' not in sys.argv:
+            print('--module|Provide Interface in format module/port')
+        exit(0)
+    elif '--top' in sys.argv:
+        if '--alias' not in sys.argv:
+            print('--alias|Prints device-alias for initiator and target. Terminal Emulator should support 511 width size.')
+        if '--initiator' not in sys.argv:
+            print('--initiator|Provide initiator FCID in the format 0xDDAAPP')
+        if '--interface' not in sys.argv:
+            print('--interface|Provide Interface in format module/port')
+        if '--limit' not in sys.argv:
+            print('--limit| Maximum number of ITL records to display. Valid range 1-{flow_limit}. Default = {flow_limit}'.format(flow_limit=max_flow_limit))
+        if '--lun' not in sys.argv:
+            print('--lun|Provide LUN ID in the format XXXX-XXXX-XXXX-XXXX')
+        if '--target' not in sys.argv:
+            print('--target|Provide target FCID in the format 0xDDAAPP')
+        if '--vsan' not in sys.argv:
+            print('--vsan|Provide vsan number')
+        if '--progress' not in sys.argv:
+            print('--progress|Prints progress bar')
+        if '--key' not in sys.argv:
+            print('--key|Provide key like iops or thput or ect')
+        if '--nvme' not in sys.argv:
+            print('--nvme|Provide NVMe related output')
+        if '--namespace' not in sys.argv:
+            print('--namespace|Provide NVMe Namespace id')
+        exit(0)
+    elif '--vsan-thput' in sys.argv:
+        if '--interface' not in sys.argv:
+            print('--interface|Provide Interface in format module/port')
+        if '--nvme' not in sys.argv:
+            print('--nvme|Provide NVMe related output')
+        print('<CR>|Run it')
+        exit(0)
+    elif '--outstanding-io' in sys.argv:
+        if '--interface' not in sys.argv:
+            print('--interface|Provide Interface in format module/port')
+        if '--refresh' not in sys.argv:
+            print('--refresh|auto-refresh the output')
+        if '--nvme' not in sys.argv:
+            print('--nvme|Provide NVMe related output')
+    exit(0)
+
+'''
+if '__cli_script_args_help_partial' in sys.argv:
+    print('__man_page')
+    print('--error:     Display error info')
+    exit(0)
+'''
+
+
+
+
+
+
 args = parser.parse_args()
 
 if args.initiator_itn or args.target_itn:
@@ -3177,7 +3364,7 @@ if args.initiator_itn or args.target_itn:
 
 sw_ver = getSwVersion()
 if sw_ver is None:
-    print 'Unable to get Switch software version'
+    print('Unable to get Switch software version')
     os._exit(1)
 
 if not validateArgs(args, sw_ver):
@@ -3185,7 +3372,7 @@ if not validateArgs(args, sw_ver):
 
 date = datetime.datetime.now()
 if not args.errorsonly:
-    print date
+    print(date)
 
 json_out = getData(args, ver=sw_ver)
 
@@ -3194,11 +3381,11 @@ if not json_out and (args.top or args.outstanding_io):
 if not json_out and not args.evaluate_npuload:
     if error_flag and 'empty' not in error['getData_str']:
         if error['getData_str'] == '':
-            print "\n\t Table is empty\n"
+            print("\n\t Table is empty\n")
         else:
-            print error['getData_str']
+            print(error['getData_str'])
     else:
-        print "\n\t Table is empty\n"
+        print("\n\t Table is empty\n")
 else:
     if args.info:
         if args.target and args.initiator and (args.lun or args.namespace):

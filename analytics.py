@@ -3387,6 +3387,9 @@ version 8.4(1) onwards
 '''.format(flow_limit=max_flow_limit))
     return True
 
+if sys.version_info[0] < 3:
+    print("Please use python3")
+    sys.exit(1)
 
 argparse.ArgumentParser.print_help = print_util_help
 
@@ -3612,9 +3615,6 @@ if '__cli_script_args_help_partial' in sys.argv:
 
 
 args = parser.parse_args()
-
-if sys.version_info[0] < 3:
-    print("Please use python3")
 
 if args.initiator_itn or args.target_itn:
     args.nvme = True

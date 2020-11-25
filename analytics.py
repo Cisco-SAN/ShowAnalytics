@@ -43,7 +43,7 @@ error = dict()
 prev_wid = None
 vmid_enabled = False 
 max_vsan_len = 4	
-max_fcid_len = 8	
+max_fcid_len = 20
 max_vmid_len = 3	
 max_lunid_len = 19	
 max_nsid_len = 3
@@ -694,9 +694,9 @@ It by default consider both scsi and nvme")
 
     if args.alias:
         if not (args.errors or args.errorsonly or args.info or args.minmax or
-                args.top):
+                args.top or args.outstanding_io):
             print("\n Alias option is only supported with --errors or \
---errorsonly or --info or --minmax or --top\n")
+--errorsonly or --info or --minmax or --top or --outstanding-io\n")
             return False
     if args.lun:
         lun = "0x" + ((args.lun).replace("-", ""))[::-1]
@@ -847,6 +847,11 @@ Please specify interface and try again")
         if not args.outstanding_io:
             print('--refresh is only supported with --outstanding-io')
             return False
+
+    if args.outfile and args.appendfile:
+        print('Please use either --outfile or --appendfile')
+        return False
+
     return True
 
 
@@ -1151,8 +1156,15 @@ def displayDetailOverlay(json_out, ver=None):
     print('GB: Giga Bytes, MB: Mega Bytes, KB: Killo Bytes,')
     print('ECT: Exchange Completion Time, DAL: Data Access Latency')
     print()
+    if args.outfile or args.appendfile:
+        fh.write('B: Bytes, s: Seconds, Avg: Average, Acc: Accumulative,'+'\n')
+        fh.write('ns: Nano Seconds, ms: Milli Seconds, us: Micro Seconds,'+'\n')
+        fh.write('GB: Giga Bytes, MB: Mega Bytes, KB: Killo Bytes,'+'\n')
+        fh.write('ECT: Exchange Completion Time, DAL: Data Access Latency'+'\n')
     if 'port' in json_out['values']['1']:
         print('\nInterface : ' + json_out['values']['1']['port'])
+        if args.outfile or args.appendfile:
+            fh.write('\nInterface : ' + json_out['values']['1']['port']+'\n')
 
     if args.alias:
         vsan = json_out['values']['1']['vsan']
@@ -1284,7 +1296,10 @@ def displayDetailOverlay(json_out, ver=None):
     t.add_row(col_values)
 
     print(t)
-
+    if args.outfile or args.appendfile:
+        data = t.get_string()
+        fh.write(data+'\n')
+        fh.close()
 
 def displayFlowInfoOverlay(json_out, ver=None):
     '''
@@ -1299,16 +1314,11 @@ def displayFlowInfoOverlay(json_out, ver=None):
     '''
     
     global prev_wid
-
-    vmid_enabled = getVmidFeature() 
-    
     if args.alias:
-        prev_wid = getTermWid()
-        # setting termial width as 511 to display alias
-        cli.cli('terminal width 511')
         fcid2pwwn = getfcid2pwwn()
         pwwn2alias = getDalias()
-        max_init_alias_len, max_targ_alias_len = 22, 19
+
+    vmid_enabled = getVmidFeature()
 
     lun_str = 'Namespace' if args.nvme else 'LUN'
     lun_str_len = max_nsid_len if args.nvme else max_lunid_len
@@ -1330,10 +1340,7 @@ def displayFlowInfoOverlay(json_out, ver=None):
             col_names = ["{0:^{w1}} | {1:^{w2}} | {2:^{w3}} | {3:^{w4}} ".\
                         format('VSAN','Initiator','Target',lun_str,w1=max_vsan_len,w2=max_fcid_len,\
                         w3=max_fcid_len,w4=lun_str_len),'Avg IOPS','Avg Throughput', 'Avg ECT']
-    col_names_desc = ['', 'Read | Write', 'Read | Write', 'Read | Write']
     metrics = []
-    cols = ''
-    vals = ''
     port, vsan, initiator, lun, target, vmid = '0/0', '', '', '', '', ''
     totalread, totalwrite, readCount, writeCount = 0, 0, 0, 0
     sizeJson = len(json_out['values'])
@@ -1428,7 +1435,6 @@ def displayFlowInfoOverlay(json_out, ver=None):
         counter = 1
 
     while counter <= sizeJson:
-        a = ''
         vmid = ''
         iopsR, thputR, ectR = 0, 0, 0
         iopsW, thputW, ectW = 0, 0, 0
@@ -1516,6 +1522,20 @@ def displayFlowInfoOverlay(json_out, ver=None):
             if str(key) == 'write_io_completion_time_max' and value != 0:
                 write_ect_max = value
                 continue
+        if args.alias:
+            if (str(initiator), int(vsan)) in fcid2pwwn:
+                init_pwwn = fcid2pwwn[(str(initiator), int(vsan))]
+                if init_pwwn in pwwn2alias:
+                    initiator = pwwn2alias[init_pwwn]
+            if len(initiator) > 20:
+                initiator = initiator[0:20]
+            if (str(target), int(vsan)) in fcid2pwwn:
+                tar_pwwn = fcid2pwwn[(target, int(vsan))]
+                if tar_pwwn in pwwn2alias:
+                    target = pwwn2alias[tar_pwwn]
+            if len(target) > 20:
+                target = target[0:20]
+
         if args.minmax:
             if vmid_enabled:
                 a = str(port) + '::' + str(vsan) + '::' + str(initiator) + '::' \
@@ -1558,25 +1578,11 @@ def displayFlowInfoOverlay(json_out, ver=None):
             a = a + '::' + str(ectR) + '::' + str(ectW)
             max_iops = max([int(i) for i in (max_iops, iopsR, iopsW)])
         counter = counter + 1
-        if args.alias:
-            ali_str, tisAliasValid = alias_maker(initiator, target, fcid2pwwn,
-                                                 pwwn2alias, vsan)
-            max_init_alias_len, max_targ_alias_len = \
-                [max(aa, bb) for aa, bb in
-                 zip([len(i) for i in ali_str.split('::')[1:]],
-                     (max_init_alias_len, max_targ_alias_len))]
-            a = a + ali_str
+
         metrics.append(a)
-        if vmid_enabled:
-            cols = str(vsan) + '|' + str(initiator) + '|' + str(vmid) + '|' + str(target) + '|' +\
-                str(lun)
-        else:
-            cols = str(vsan) + '|' + str(initiator) + '|' + str(target) + '|' +\
-                str(lun)
          
     port_metrics = {}
     for l in metrics:
-        parts = []
         parts = l.split('::')
 
         port = str(parts[0])
@@ -1586,27 +1592,6 @@ def displayFlowInfoOverlay(json_out, ver=None):
             port_metrics[port] = []
             port_metrics[port].append(l)
 
-    if args.alias:
-        if vmid_enabled:
-            if args.minmax:
-                part_alias_h = 14
-                part_alias_t = 15
-            else:
-                part_alias_h = 12
-                part_alias_t = 13
-        else:
-           if args.minmax:
-                part_alias_h = 13
-                part_alias_t = 14
-           else:
-                part_alias_h = 11
-                part_alias_t = 12 
-
-        col_names.append("{0:^{width}}".format('Initiator Device alias',
-                                               width=max_init_alias_len))
-        col_names.append("{0:^{width}}".format('Target Device alias',
-                                               width=max_targ_alias_len))
-        # col_names_desc.extend(['',''])
 
     for port in sorted(port_metrics,
                        key=lambda x: tuple([int(i) for i in
@@ -1614,10 +1599,7 @@ def displayFlowInfoOverlay(json_out, ver=None):
         t = PrettyTable(col_names)
         col_names_empty = ['', '', '', ''] if not args.minmax else ['', '',
                                                                     '', '', '']
-        if args.alias:
-            col_names_empty.extend(['', ''])
-        # t.align = "l"
-        # aligning iops
+
         max_iops_len = len(str(max_iops))
 
         col_names_desc = ['',
@@ -1632,8 +1614,6 @@ def displayFlowInfoOverlay(json_out, ver=None):
                                                             w=max_iops_len),
                               '   Read   |   Write   ',
                               '   Min   |    Max   ', '  Min    |    Max   ']
-        if args.alias:
-            col_names_desc.extend(['', ''])
         t.add_row(col_names_desc)
         t.add_row(col_names_empty)
 
@@ -1643,15 +1623,14 @@ def displayFlowInfoOverlay(json_out, ver=None):
         print("\n Interface " + port)
         for l in port_metrics[port]:
             col_values = []
-            parts = []
             parts = l.split('::')
             if vmid_enabled:
                 if not (args.initiator_it or args.target_it):
-                    col_values.append("{0:>{w1}} | {1:>{w2}} | {2:>{w3}} | {3:>{w4}} | {4:>{w5}} "\
+                    col_values.append("{0:>{w1}} | {1:^{w2}} | {2:>{w3}} | {3:^{w4}} | {4:>{w5}} "\
                     .format(parts[1],parts[2],parts[3],parts[4],parts[5],w1=max_vsan_len,w2=max_fcid_len,\
                     w3=max_vmid_len,w4=max_fcid_len,w5=lun_str_len))
                 else:
-                    col_values.append("{0:>{w1}} | {1:>{w2}} | {2:>{w3}} | {3:>{w4}} ".format(parts[1],\
+                    col_values.append("{0:>{w1}} | {1:^{w2}} | {2:>{w3}} | {3:^{w4}} ".format(parts[1],\
                     parts[2],parts[3],parts[4],w1=max_vsan_len,w2=max_fcid_len,w3=max_vmid_len,w4=max_fcid_len))
                 col_values.append(" {0:^{w}} | {1:^{w}} ".format(parts[6],
                                                                  parts[7],
@@ -1669,11 +1648,11 @@ def displayFlowInfoOverlay(json_out, ver=None):
 
             else:
                 if not (args.initiator_it or args.target_it):
-                    col_values.append("{0:>{w1}} | {1:>{w2}} | {2:>{w3}} | {3:>{w4}} "\
+                    col_values.append("{0:>{w1}} | {1:^{w2}} | {2:^{w3}} | {3:^{w4}} "\
                     .format(parts[1],parts[2],parts[3],parts[4],w1=max_vsan_len,w2=max_fcid_len,\
                     w3=max_fcid_len,w4=lun_str_len))
                 else:
-                    col_values.append("{0:>{w1}} | {1:>{w2}} | {2:>{w3}} ".format(parts[1],\
+                    col_values.append("{0:>{w1}} | {1:^{w2}} | {2:^{w3}} ".format(parts[1],\
                     parts[2],parts[3],w1=max_vsan_len,w2=max_fcid_len,w3=max_fcid_len))
                 col_values.append(" {0:^{w}} | {1:^{w}} ".format(parts[5],
                                                                  parts[6],
@@ -1688,23 +1667,22 @@ def displayFlowInfoOverlay(json_out, ver=None):
                     col_values.append("{0:>9} |{1:>10}"
                                       .format(time_conv(float(parts[11])),
                                               time_conv(float(parts[12]))))
-            if args.alias:
-                t.align["{0:^{w}}".format('Initiator Device alias',
-                                          w=max_init_alias_len)] = 'l'
-                t.align["{0:^{w}}".format('Target Device alias',
-                                          w=max_targ_alias_len)] = 'l'
-                col_values.extend([str(parts[part_alias_h]),
-                                   str(parts[part_alias_t])])
-            t.add_row(col_values)
 
+            t.add_row(col_values)
         print(t)
+    if args.outfile or args.appendfile:
+        data = t.get_string()
+        fh.write(data+'\n')
+        if not args.minmax:
+            fh.close()
+
     if args.minmax:
         print('*These values are calculated since the metrics were last \
 cleared.')
-
-    # setting back orignal terminal width
-    if args.alias:
-        cli.cli("terminal width {}".format(prev_wid))
+        if args.outfile or args.appendfile:
+            fh.write('*These values are calculated since the metrics were last \
+cleared.'+'\n')
+            fh.close()
 
 
 def displayErrorsOverlay(json_out, date, ver=None):
@@ -1723,28 +1701,9 @@ def displayErrorsOverlay(json_out, date, ver=None):
     '''
 
     vmid_enabled = getVmidFeature()
-
     if args.alias:
-        prev_wid = getTermWid()
-        # setting termial width as 511 to display alias
-        cli.cli('terminal width 511')
         fcid2pwwn = getfcid2pwwn()
         pwwn2alias = getDalias()
-        max_init_alias_len = 22
-        max_targ_alias_len = 19
-
-        def alias_maker(init_fcid, targ_fcid, f2p, p2a, vsan):
-            iav = False
-            alias_str = ''
-            for fcid in [init_fcid, targ_fcid]:
-                val = ' '
-                if (str(fcid), int(vsan)) in f2p:
-                    pwn = f2p[(str(fcid), int(vsan))]
-                    if pwn in p2a:
-                        iav = True
-                        val = p2a[pwn]
-                alias_str = alias_str+'::'+val
-            return [alias_str, iav]
 
     displaydateFlag = False
 
@@ -1772,16 +1731,12 @@ def displayErrorsOverlay(json_out, date, ver=None):
                         format('VSAN','Initiator','Target',w1=max_vsan_len,w2=max_fcid_len,\
                         w3=max_fcid_len),failure_str,'Total FC Aborts'] 
     col_names_desc = ['', 'Read | Write', 'Read | Write']
-    col_values = []
     metrics = []
-    cols = ''
-    vals = ''
     vsan, initiator, lun, target, vmid = '', '', '', '', ''
     max_failures, max_aborts = 0, 0
     sizeJson = len(json_out['values'])
     counter = 1
     while counter <= sizeJson:
-        a = ''
         failR, abortsR = 0, 0
         failW, abortsW = 0, 0
         for key, value in json_out['values'][str(counter)].items():
@@ -1819,6 +1774,21 @@ def displayErrorsOverlay(json_out, date, ver=None):
             if str(key) == 'write_io_failures' and value != 0:
                 failW = int(value)
         counter = counter + 1
+        if args.alias:
+            if (str(initiator), int(vsan)) in fcid2pwwn:
+                init_pwwn = fcid2pwwn[(str(initiator), int(vsan))]
+                if init_pwwn in pwwn2alias:
+                    initiator = pwwn2alias[init_pwwn]
+            if len(initiator) > 20:
+                initiator = initiator[0:20]
+
+            if (str(target), int(vsan)) in fcid2pwwn:
+                tar_pwwn = fcid2pwwn[(target, int(vsan))]
+                if tar_pwwn in pwwn2alias:
+                    target = pwwn2alias[tar_pwwn]
+            if len(target) > 20:
+                target = target[0:20]
+
         # for errorsonly
         if args.errors or (failR != 0 or failW != 0 or abortsR != 0 or
                            abortsW != 0):
@@ -1832,15 +1802,6 @@ def displayErrorsOverlay(json_out, date, ver=None):
                     + str(failW) + '::' + str(abortsR) + '::' + str(abortsW)
             max_failures = max(max_failures, failR, failW)
             max_aborts = max(max_aborts, abortsR, abortsW)
-            if args.alias:
-                ali_str, tisAliasValid = alias_maker(initiator, target,
-                                                     fcid2pwwn, pwwn2alias,
-                                                     vsan)
-                max_init_alias_len, max_targ_alias_len = \
-                    [max(aa, bb) for aa, bb in
-                     zip([len(i) for i in ali_str.split('::')[1:]],
-                         (max_init_alias_len, max_targ_alias_len))]
-                a = a + ali_str
             metrics.append(a)
             if vmid_enabled:
                 cols = str(vsan) + '|' + str(initiator) + '|' + str(vmid) + '|' + str(target) + '|' \
@@ -1860,7 +1821,6 @@ def displayErrorsOverlay(json_out, date, ver=None):
 
     port_metrics = {}
     for l in metrics:
-        parts = []
         parts = l.split('::')
 
         port = str(parts[0])
@@ -1869,13 +1829,6 @@ def displayErrorsOverlay(json_out, date, ver=None):
         else:
             port_metrics[port] = []
             port_metrics[port].append(l)
-
-    if args.alias:
-        col_names.append("{0:^{w}}".format('Initiator Device alias',
-                                           w=max_init_alias_len))
-        col_names.append("{0:^{w}}".format('Target Device alias',
-                                           w=max_targ_alias_len))
-        col_names_desc.extend(['', ''])
 
     # aligning o/p
     failure_width = len(str(max_failures))+2
@@ -1886,7 +1839,7 @@ def displayErrorsOverlay(json_out, date, ver=None):
                                             x[2:].split('/')])):
         t = PrettyTable(col_names)
         t.add_row(col_names_desc)
-        col_names_empty = ['', '', '', '', ''] if args.alias else ['', '', '']
+        col_names_empty = ['', '', '']
         t.add_row(col_names_empty)
         # t.align = "l"
 
@@ -1894,42 +1847,43 @@ def displayErrorsOverlay(json_out, date, ver=None):
             t.align[col_names[0]] = 'l'
 
         print("\n Interface " + port)
+        if args.outfile or args.appendfile:
+            fh.write("\n Interface " + port+'\n')
         for l in port_metrics[port]:
             col_values = []
-            parts = []
             parts = l.split('::')
             if vmid_enabled:
                 if not (args.initiator_it or args.target_it):
-                    col_values.append("{0:>{w1}} | {1:>{w2}} | {2:>{w3}} | {3:>{w4}} | {4:>{w5}} "\
+                    col_values.append("{0:>{w1}} | {1:^{w2}} | {2:>{w3}} | {3:^{w4}} | {4:>{w5}} "\
                     .format(parts[1],parts[2],parts[3],parts[4],parts[5],w1=max_vsan_len,\
                     w2=max_fcid_len,w3=max_vmid_len,w4=max_fcid_len,w5=lun_str_len))
                 else:                                                                                   
-                    col_values.append("{0:>{w1}} | {1:>{w2}} | {2:>{w3}} | {3:>{w4}} ".format(parts[1],\
+                    col_values.append("{0:>{w1}} | {1:^{w2}} | {2:>{w3}} | {3:^{w4}} ".format(parts[1],\
                     parts[2],parts[3],parts[4],w1=max_vsan_len,w2=max_fcid_len,w3=max_vmid_len,\
                     w4=max_fcid_len))
                 col_values.append("{0:^{w}}|{1:^{w}}"
                                   .format(parts[6], parts[7], w=failure_width))
                 col_values.append("{0:^{w}}|{1:^{w}}"
                                   .format(parts[8], parts[9], w=abort_width))
-                if args.alias:
-                    col_values.extend([str(parts[10]), str(parts[11])])
             else:
                 if not (args.initiator_it or args.target_it):
-                    col_values.append("{0:>{w1}} | {1:>{w2}} | {2:>{w3}} | {3:>{w4}} "\
+                    col_values.append("{0:>{w1}} | {1:^{w2}} | {2:^{w3}} | {3:>{w4}} "\
                     .format(parts[1],parts[2],parts[3],parts[4],w1=max_vsan_len,\
                     w2=max_fcid_len,w3=max_fcid_len,w4=lun_str_len))
                 else:
-                    col_values.append("{0:>{w1}} | {1:>{w2}} | {2:>{w3}} ".format(parts[1],\
+                    col_values.append("{0:>{w1}} | {1:^{w2}} | {2:^{w3}} ".format(parts[1],\
                     parts[2],parts[3],w1=max_vsan_len,w2=max_fcid_len,\
                     w3=max_fcid_len))
                 col_values.append("{0:^{w}}|{1:^{w}}"
                                   .format(parts[5], parts[6], w=failure_width))
                 col_values.append("{0:^{w}}|{1:^{w}}"
                                   .format(parts[7], parts[8], w=abort_width))
-                if args.alias:
-                    col_values.extend([str(parts[9]), str(parts[10])])
             t.add_row(col_values)
         print(t)
+        if args.outfile or args.appendfile:
+            data = t.get_string()
+            fh.write(data+'\n')
+            fh.close()
 
 
 def displayNpuloadEvaluation(json_out, ver=None):
@@ -2008,7 +1962,12 @@ run prior to configuring analytics')
     expected_time = int_count*60
     print('There are {} interfaces to be evaluated. Expected time is {}\
 '.format(int_count, time_formator(expected_time)))
+    if args.outfile or args.appendfile:
+        fh.write('There are {} interfaces to be evaluated. Expected time is {}\
+'.format(int_count, time_formator(expected_time))+'\n')
     conf_response = str(input('Do you want to continue [Yes|No]? [n]'))
+    if args.outfile or args.appendfile:
+        fh.write('Do you want to continue [Yes|No]? [n]' + conf_response+'\n')
     if conf_response not in ['Y', 'y', 'Yes', 'yes', 'YES']:
         return False
 
@@ -2113,7 +2072,6 @@ run prior to configuring analytics')
         if time_drift < 30:
             sleep_time = 31 - time_drift
             time.sleep(sleep_time)
-        data_scsi, data_nvme = None, None
         # print 'SCSI Analysis start time {}'.format(datetime.datetime.now())
         data_scsi = getData(args, (inte, 'scsi'), ver)
         # print 'SCSI Analysis end time {}'.format(datetime.datetime.now())
@@ -2129,7 +2087,6 @@ run prior to configuring analytics')
         working_interface = None
         end_time = out.split('\n')[-2].split(' ')[0][:-4]
         itl_count, itn_count, scsi_iops, nvme_iops = 0, 0, 0, 0
-        data = ''
         if data_scsi is not None:
             for key, value in data_scsi['values']['1'].items():
                 if key == 'sampling_start_time':
@@ -2153,6 +2110,12 @@ run prior to configuring analytics')
                     continue
                 if key == 'write_io_rate':
                     scsi_iops += int(value)
+                    continue
+                if key == 'scsi_initiator_count':
+                    init_count = value
+                    continue
+                if key == 'scsi_target_count':
+                    tar_count = value
                     continue
             scsi_iops = scsi_iops/5000.0
             # print 'SCSI Window {}   {}'.format(start_time,end_time)
@@ -2179,11 +2142,30 @@ run prior to configuring analytics')
                 if key == 'write_io_rate':
                     nvme_iops += int(value)
                     continue
+                if key == 'nvme_initiator_count':
+                    init_count = value
+                    continue
+                if key == 'nvme_target_count':
+                    tar_count = value
+                    continue
 
             nvme_iops = nvme_iops/5000.0
             # print 'Nvme Window {}   {}'.format(start_time,end_time)
 
-        data = inte + '-' + str(itl_count) + '-' + str(scsi_iops)\
+        f_ports = getPureFPorts()
+        e_ports = getEPorts()
+
+        inte_type = None
+
+        if inte in f_ports:
+            if tar_count is not '0':
+                inte_type = 'Target'
+            elif init_count is not '0':
+                inte_type = 'Initiator'
+        elif inte in e_ports:
+            inte_type = 'E'
+
+        data = inte + '-' + inte_type + '-' + str(itl_count) + '-' + str(scsi_iops)\
             + '-' + str(itn_count) + '-' + str(nvme_iops)\
             + '-' + str(start_time) + '-' + str(end_time)
         if 'module' in dir():
@@ -2195,7 +2177,7 @@ run prior to configuring analytics')
         else:
             mod_matrix[mod].append(data)
 
-    col_empty = ['']*9
+    col_empty = ['']*10
     if sig_hup_flag not in [None, 'Armed']:
         file_name = '/bootflash/'+sig_hup_flag
         try:
@@ -2214,17 +2196,19 @@ run prior to configuring analytics')
                 file_handler.write("Module {}".format(mod))
             else:
                 print("Module {}".format(mod))
+                if args.outfile or args.appendfile:
+                    fh.write("Module {}".format(mod)+'\n')
         m_itl_count, m_scsi_iops, m_itn_count, m_nvme_iops = 0, 0, 0, 0
 
-        t = PrettyTable(['', ' SCSI ', ' NVMe ', ' Total ', 'SCSI',
+        t = PrettyTable(['', '  ', ' SCSI ', ' NVMe ', ' Total ', 'SCSI',
                          'NVMe', 'Total', 'Start Time', 'End Time'],
-                        headers_misc=[['above', ['Interface', 'ITL/N Count',
+                        headers_misc=[['above', ['Interface', 'Type', 'ITL/N Count',
                                                  ' NPU Load %', 'Analyis',
                                                  'Analysis'],
-                                       [1, 3, 3, 1, 1]]])
+                                       [1, 1, 3, 3, 1, 1]]])
 
         for port_metrix in mod_matrix[mod]:
-            tport, t_itl_count, t_scsi_iops, t_itn_count, \
+            tport, type, t_itl_count, t_scsi_iops, t_itn_count,\
                 t_nvme_iops, t_start_time, t_end_time = port_metrix.split('-')
             t_itl_count, t_itn_count = [int(i) for i in
                                         [t_itl_count, t_itn_count]]
@@ -2239,13 +2223,13 @@ run prior to configuring analytics')
             mod_iops_list.append(port_iops_count)
             mod_flow_list.append(port_flow_count)
 
-            t.add_row([tport, t_itl_count, t_itn_count, port_flow_count,
+            t.add_row([tport, type, t_itl_count, t_itn_count, port_flow_count,
                        '{:.1f}'.format(t_scsi_iops),
                        '{:.1f}'.format(t_nvme_iops),
                        '{:.1f}'.format(port_iops_count),
                        t_start_time, t_end_time])
         t.add_row(col_empty)
-        t.add_row(['*Total', m_itl_count, m_itn_count,
+        t.add_row(['*Total','', m_itl_count, m_itn_count,
                    (m_itl_count+m_itn_count),
                    '{:.1f}'.format(m_scsi_iops),
                    '{:.1f}'.format(m_nvme_iops),
@@ -2258,9 +2242,16 @@ run prior to configuring analytics')
                                                          mod_flow_list)))
         else:
             print(t)
+            if args.outfile or args.appendfile:
+                data = t.get_string()
+                fh.write(data+'\n')
+
             if not interface_list_flag:
                 print("Recommended port sampling size: {0}\n\
 ".format(calculate_max_sample_window(mod_iops_list, mod_flow_list)))
+                if args.outfile or args.appendfile:
+                    fh.write("Recommended port sampling size: {0}\n\
+".format(calculate_max_sample_window(mod_iops_list, mod_flow_list))+'\n')
 
     if sig_hup_flag not in [None, 'Armed']:
         file_handler.write('\n')
@@ -2274,10 +2265,19 @@ run prior to configuring analytics')
     else:
         print('* This total is an indicative reference based on \
 evaluated ports')
+        if args.outfile or args.appendfile:
+            fh.write('* This total is an indicative reference based on \
+evaluated ports'+'\n')
         if error_log != []:
             print('\nErrors:\n------\n')
+            if args.outfile or args.appendfile:
+                fh.write('\nErrors:\n------\n'+'\n')
             for msg in error_log:
                 print(msg)
+                if args.outfile or args.appendfile:
+                    fh.write(msg+'\n')
+            if args.outfile or args.appendfile:
+                fh.close()
     cli.cli('logit ShowAnalytics: Task Completed')
 
 
@@ -2377,7 +2377,6 @@ def displayVsanOverlay(json_out, ver=None):
                     port_metrics[port1][vsan] = [0, 0]
 
     col_names = ['', 'Read', 'Write', 'Total']
-    col_names_desc = ['', '(MBps)', '(MBps)', '(MBps)']
 
     for port in sorted(port_metrics,
                        key=lambda x: tuple([int(i) for i in x[2:].split('/')])
@@ -2411,8 +2410,16 @@ def displayVsanOverlay(json_out, ver=None):
             t.add_row(col)
         print("\n Interface " + port)
         print(t)
+        if args.outfile or args.appendfile:
+            data = t.get_string()
+            fh.write("\n Interface " + port+'\n')
+            fh.write(data+'\n')
+
     proto = 'NVMe' if args.nvme else 'SCSI'
     print('Note: This data is only for {0}\n'.format(proto))
+    if args.outfile or args.appendfile:
+        fh.write('Note: This data is only for {0}\n'.format(proto))
+        fh.close()
 
 
 def displayTop(args, json_out, return_vector, ver=None):
@@ -2445,12 +2452,8 @@ def displayTop(args, json_out, return_vector, ver=None):
         sys.stdout.flush()
 
     if args.alias:
-        prev_wid = getTermWid()
-        # setting termial width as 511 to display alias
-        cli.cli('terminal width 511')
         fcid2pwwn = getfcid2pwwn()
         pwwn2alias = getDalias()
-        max_init_alias_len, max_targ_alias_len = 22, 19
 
     line_count = 0
     str1 = None
@@ -2532,6 +2535,19 @@ def displayTop(args, json_out, return_vector, ver=None):
                                tric, twic]]
 
             counter += 1
+            if args.alias:
+                if (str(initiator), int(vsan)) in fcid2pwwn:
+                    init_pwwn = fcid2pwwn[(str(initiator), int(vsan))]
+                    if init_pwwn in pwwn2alias:
+                        initiator = pwwn2alias[init_pwwn]
+                if len(initiator) > 20:
+                    initiator = initiator[0:20]
+                if (str(target), int(vsan)) in fcid2pwwn:
+                    tar_pwwn = fcid2pwwn[(target, int(vsan))]
+                    if tar_pwwn in pwwn2alias:
+                        target = pwwn2alias[tar_pwwn]
+                if len(target) > 20:
+                    target = target[0:20]
             if vmid_enabled:
                 itl_id = port + '::' + vsan + '::' + initiator + '::' + vmid + '::' + target \
                     + '::' + lun
@@ -2562,15 +2578,6 @@ def displayTop(args, json_out, return_vector, ver=None):
 
                 a = itl_id + '::' + str(ectR) + '::' + str(ectW) \
                     + '::' + str(ectW+ectR)
-            if args.alias:
-                ali_str, tisAliasValid = alias_maker(initiator, target,
-                                                     fcid2pwwn, pwwn2alias,
-                                                     vsan)
-                max_init_alias_len, max_targ_alias_len = \
-                    [max(aa, bb) for aa, bb in
-                     zip([len(i) for i in ali_str.split('::')[1:]],
-                         (max_init_alias_len, max_targ_alias_len))]
-                a = a + ali_str
             metrics.append(a)
 
         json_out = None
@@ -2638,11 +2645,7 @@ def displayTop(args, json_out, return_vector, ver=None):
             col_names = ["PORT", "{0:^{w1}} | {1:^{w2}} | {2:^{w3}} | {3:^{w4}} ".
                         format('VSAN','Initiator','Target',lun_str,w1=max_vsan_len,w2=max_fcid_len,\
                         w3=max_fcid_len,w4=lun_str_len),"ECT"]
-    if args.alias:
-        col_names.append("{0:^{w}}".format('Initiator Device alias',
-                                           w=max_init_alias_len))
-        col_names.append("{0:^{w}}".format('Target Device alias',
-                                           w=max_targ_alias_len))
+
     t = PrettyTable(col_names)
     line_count = 4
     if args.key == 'THPUT':
@@ -2651,9 +2654,6 @@ def displayTop(args, json_out, return_vector, ver=None):
     else:
         row_val = [" ", " ", "Read  |  Write"]
 
-    if args.alias:
-        row_val.extend(["", ""])
-
     t.add_row(row_val)
 
     if args.nvme:
@@ -2661,56 +2661,43 @@ def displayTop(args, json_out, return_vector, ver=None):
     
     for data in port_metrics:
         if vmid_enabled:
-            if args.alias:
-                p, v, i, vmid, ta, l, r, w, to, ini_ali, tar_ali = data.split('::')
-            else:
-                p, v, i, vmid, ta, l, r, w, to = data.split('::')
+            p, v, i, vmid, ta, l, r, w, to = data.split('::')
             if args.key == 'THPUT':
-                col_values = [p, "{0:>{w1}} | {1:>{w2}} | {2:>{w3}} | {3:>{w4}} | {4:>{w5}} "\
+                col_values = [p, "{0:>{w1}} | {1:^{w2}} | {2:>{w3}} | {3:^{w4}} | {4:>{w5}} "\
                               .format(v, i, vmid, ta, l, w1=max_vsan_len,w2=max_fcid_len,w3=max_vmid_len,\
                               w4=max_fcid_len,w5=lun_str_len),
                               "{0:^11}| {1:^10}".format(thput_conv(r),
                                                         thput_conv(w))]
             elif args.key == 'ECT':
-                col_values = [p, "{0:>{w1}} | {1:>{w2}} | {2:>{w3}} | {3:>{w4}} | {4:>{w5}} "\
+                col_values = [p, "{0:>{w1}} | {1:^{w2}} | {2:>{w3}} | {3:^{w4}} | {4:>{w5}} "\
                               .format(v, i, vmid, ta, l, w1=max_vsan_len,w2=max_fcid_len,w3=max_vmid_len,\
                               w4=max_fcid_len,w5=lun_str_len), 
                               "{0:>8} |{1:^10}".format(time_conv(r),
                                                        time_conv(w))]
             else:
-                col_values = [p, "{0:>{w1}} | {1:>{w2}} | {2:>{w3}} | {3:>{w4}} | {4:>{w5}} "\
+                col_values = [p, "{0:>{w1}} | {1:^{w2}} | {2:>{w3}} | {3:^{w4}} | {4:>{w5}} "\
                               .format(v, i, vmid, ta, l, w1=max_vsan_len,w2=max_fcid_len,w3=max_vmid_len,\
                               w4=max_fcid_len,w5=lun_str_len),
                               "{0:^8}|{1:^8}".format(r, w)]
         else:
-            if args.alias:
-                p, v, i, ta, l, r, w, to, ini_ali, tar_ali = data.split('::')
-            else:
-                p, v, i, ta, l, r, w, to = data.split('::')
+            p, v, i, ta, l, r, w, to = data.split('::')
             if args.key == 'THPUT':
-                col_values = [p, "{0:>{w1}} | {1:>{w2}} | {2:>{w3}} | {3:>{w4}} "\
+                col_values = [p, "{0:>{w1}} | {1:^{w2}} | {2:^{w3}} | {3:>{w4}} "\
                               .format(v, i, ta, l, w1=max_vsan_len,w2=max_fcid_len,\
                               w3=max_fcid_len,w4=lun_str_len),
                               "{0:^11}| {1:^10}".format(thput_conv(r),
                                                         thput_conv(w))]
             elif args.key == 'ECT':
-                col_values = [p, "{0:>{w1}} | {1:>{w2}} | {2:>{w3}} | {3:>{w4}} "\
+                col_values = [p, "{0:>{w1}} | {1:^{w2}} | {2:^{w3}} | {3:>{w4}} "\
                               .format(v, i, ta, l, w1=max_vsan_len,w2=max_fcid_len,\
                               w3=max_fcid_len,w4=lun_str_len),
                               "{0:>8} |{1:^10}".format(time_conv(r),
                                                        time_conv(w))]
             else:
-                col_values = [p, "{0:>{w1}} | {1:>{w2}} | {2:>{w3}} | {3:>{w4}} "\
+                col_values = [p, "{0:>{w1}} | {1:^{w2}} | {2:^{w3}} | {3:>{w4}} "\
                               .format(v, i, ta, l, w1=max_vsan_len,w2=max_fcid_len,\
                               w3=max_fcid_len,w4=lun_str_len),
                               "{0:^8}|{1:^8}".format(r, w)]
-
-        if args.alias:
-            t.align["{0:^{w}}".format('Initiator Device alias',
-                                      w=max_init_alias_len)] = 'l'
-            t.align["{0:^{w}}".format('Target Device alias',
-                                      w=max_targ_alias_len)] = 'l'
-            col_values.extend([str(ini_ali), str(tar_ali)])
 
         t.add_row(col_values)
         line_count += 1
@@ -2734,6 +2721,21 @@ def displayTop(args, json_out, return_vector, ver=None):
     print(datetime.datetime.now())
     print()
     print(t)
+    if args.outfile or args.appendfile:
+        data = t.get_string()
+        try:
+            fh.write(data+'\n')
+        except:
+            if args.appendfile:
+                outfile = args.appendfile
+            if args.outfile:
+                outfile = args.outfile
+            os.chdir('/bootflash')
+            fh = open(outfile, 'a+')
+            fh.write(str(datetime.datetime.now())+'\n')
+            fh.write(data+'\n')
+        fh.close()
+
     print()
     if args.key == 'ECT':
         return [line_count, return_vector[1], pdata]
@@ -2762,6 +2764,10 @@ def displayOutstandingIo(json_out, return_vector, ver=None):
     global error_flag
 
     vmid_enabled = getVmidFeature()
+
+    if args.alias:
+        fcid2pwwn = getfcid2pwwn()
+        pwwn2alias = getDalias()
 
     f_ports = getPureFPorts()
     port = args.interface
@@ -2844,6 +2850,22 @@ def displayOutstandingIo(json_out, return_vector, ver=None):
                            for i in ['active_io_read_count',
                                      'active_io_write_count']]
             counter += 1
+
+            if args.alias:
+                if (str(initiator), int(vsan)) in fcid2pwwn:
+                    init_pwwn = fcid2pwwn[(str(initiator), int(vsan))]
+                    if init_pwwn in pwwn2alias:
+                        initiator = pwwn2alias[init_pwwn]
+                if len(initiator) > 20:
+                    initiator = initiator[0:20]
+
+                if (str(target), int(vsan)) in fcid2pwwn:
+                    tar_pwwn = fcid2pwwn[(target, int(vsan))]
+                    if tar_pwwn in pwwn2alias:
+                        target = pwwn2alias[tar_pwwn]
+                if len(target) > 20:
+                    target = target[0:20]
+
             if vmid_enabled:
                 a = str(port) + '::' + str(vsan) + '::' + str(initiator) \
                     + '::' + str(vmid) + '::' + str(target) + '::' + str(lun) \
@@ -2863,6 +2885,7 @@ def displayOutstandingIo(json_out, return_vector, ver=None):
 
     port_metrics = metrics
 
+
     if not return_vector[0]:
         try:
             flogis = [str(i) for i in flogi(cli.cli("sh flogi database \
@@ -2874,7 +2897,6 @@ interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
         i, ta = [fcid_Normalizer(z) for z in port_metrics[0].split('::')[2:4]]
 
         fcns_type = None
-        exc_flag = False
         try:
             if i in flogis:
                 fcns_type = 'Initiator'
@@ -2883,12 +2905,23 @@ interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
             else:
                 fcns_type = 'NA'
         except Exception:
-            exc_flag = True
             pass
         vSan = metrics[0].split('::')[1]
         pdata = "\n Interface : {0}  VSAN : {1}  FCNS_type : {2}\
             ".format(port, vSan, fcns_type)
         print(pdata)
+        if args.outfile or args.appendfile:
+            try:
+                fh.write(pdata + '\n')
+            except:
+                if args.appendfile:
+                    outfile = args.appendfile
+                if args.outfile:
+                    outfile = args.outfile
+                os.chdir('/bootflash')
+                fh = open(outfile, 'a+')
+                fh.write(str(datetime.datetime.now()) + '\n')
+                fh.write(pdata + '\n')
 
     t = PrettyTable(col_names)
     t.add_row([" ", "Read | Write"])
@@ -2909,11 +2942,11 @@ interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
         qdpth += o
         line_count += 1
         if vmid_enabled:
-            t.add_row(["{0:>{w1}} | {1:>{w2}} | {2:>{w3}} | {3:>{w4}}".format(i, vmid, ta, l,\
+            t.add_row(["{0:^{w1}} | {1:>{w2}} | {2:^{w3}} | {3:>{w4}}".format(i, vmid, ta, l,\
                    w1=max_fcid_len,w2=max_vmid_len,w3=max_fcid_len,w4=lun_str_len),
                    "{0:^3} | {1:^3}".format(r, w)])
         else:
-            t.add_row(["{0:>{w1}} | {1:>{w2}} | {2:>{w3}}".format(i, ta, l,\
+            t.add_row(["{0:^{w1}} | {1:^{w2}} | {2:>{w3}}".format(i, ta, l,\
                    w1=max_fcid_len,w2=max_fcid_len,w3=lun_str_len),
                    "{0:^3} | {1:^3}".format(r, w)]) 
     # t.add_footer([[["Qdepth",str(qdpth)],[1,1],['l','l']]])
@@ -2930,8 +2963,26 @@ interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
         print(pdata)
     print()
     print(t)
+    if args.outfile or args.appendfile:
+        data = t.get_string()
+        try:
+            fh.write(data + '\n')
+        except:
+            if args.appendfile:
+                outfile = args.appendfile
+            if args.outfile:
+                outfile = args.outfile
+            os.chdir('/bootflash')
+            fh = open(outfile, 'a+')
+            fh.write(str(datetime.datetime.now()) + '\n')
+            fh.write(data + '\n')
+
     if args.limit == max_flow_limit:
         print ("Instantaneous Qdepth : {}".format(qdpth))
+        if args.outfile or args.appendfile:
+            fh.write("Instantaneous Qdepth : {}".format(qdpth)+'\n')
+            fh.close()
+
         line_count += 1
     print('')
     return [line_count, return_vector[1], pdata]
@@ -3002,12 +3053,14 @@ def getData(args, misc=None, ver=None):
         else:
             port, q_type = misc
             if q_type == 'nvme':
-                query = "select nvme_initiator_itn_flow_count, \
+                query = "select nvme_target_count, nvme_initiator_count,\
+                    nvme_initiator_itn_flow_count,  \
                     nvme_target_itn_flow_count, read_io_rate, \
                     write_io_rate from fc-nvme.port where port={0}\
                     ".format(port)
             else:
-                query = "select scsi_initiator_itl_flow_count, \
+                query = "select scsi_target_count, scsi_initiator_count,\
+                    scsi_initiator_itl_flow_count, \
                     scsi_target_itl_flow_count, read_io_rate, \
                     write_io_rate from fc-scsi.port where port={0}\
                     ".format(port)
@@ -3165,8 +3218,6 @@ def getData(args, misc=None, ver=None):
     except cli.cli_syntax_error:
         pass
 
-    json_out = None
-
     global error
     global error_flag
 
@@ -3174,7 +3225,6 @@ def getData(args, misc=None, ver=None):
         json_out = json.loads(json_str)
     except ValueError as e:
         error['getData_str'] = json_str
-        json_out = None
         error_flag = True
         error['line_count'] = len(json_str.split('\n')) + 1
         json_out = None
@@ -3208,27 +3258,33 @@ OPTIONS :
       --initiator-itl         Provides errors metrics for SCSI initiator ITLs
                               Args :  [--interface <interface>] \
 [--initiator <initiator_fcid>] [--target <target_fcid>] \
-[--lun <lun_id>] [--alias] [--limit <itl_limit>]
+[--lun <lun_id>] [--alias] [--limit <itl_limit>] [--outfile <out_file>]\
+[--appendfile <out_file>]
       --target-itl            Provides errors metrics for SCSI target ITLs
                               Args :  [--interface <interface>] \
 [--initiator <initiator_fcid>] [--target <target_fcid>] \
-[--lun <lun_id>] [--alias] [--limit <itl_limit>]
+[--lun <lun_id>] [--alias] [--limit <itl_limit>] [--outfile <out_file>]\
+[--appendfile <out_file>]
       --initiator-itn         Provides errors metrics for NVMe initiator ITNs
                               Args :  [--interface <interface>] \
 [--initiator <initiator_fcid>] [--target <target_fcid>] \
-[--alias] [--limit <itn_limit>] [--namespace <namespace_id>]
+[--alias] [--limit <itn_limit>] [--namespace <namespace_id>]\
+[--outfile <out_file>] [--appendfile <out_file>]
       --target-itn            Provides errors metrics for NVMe target ITNs
                               Args :  [--interface <interface>] \
 [--initiator <initiator_fcid>] [--target <target_fcid>] \
-[--alias] [--limit <itn_limit>] [--namespace <namespace_id>]
+[--alias] [--limit <itn_limit>] [--namespace <namespace_id>]\
+[--outfile <out_file>] [--appendfile <out_file>]
       --initiator-it          Provides errors metrics for initiator ITs
                               Args :  [--interface <interface>] \
 [--initiator <initiator_fcid>] [--target <target_fcid>] \
-[--alias] [--limit <itl_limit>] [--nvme]
+[--alias] [--limit <itl_limit>] [--nvme] [--outfile <out_file>]\
+[--appendfile <out_file>]
       --target-it             Provides errors metrics for target ITs
                               Args :  [--interface <interface>] \
 [--initiator <initiator_fcid>] [--target <target_fcid>]\
-[--alias] [--limit <itl_limit>] [--nvme]
+[--alias] [--limit <itl_limit>] [--nvme] [--outfile <out_file>]\
+[--appendfile <out_file>]
 
  --errorsonly             Provides error metrics for IT(L/N)s. Only display \
 IT(L/N)s with non-zero errors.
@@ -3240,32 +3296,39 @@ target-itn <args> | --initiator-it <args> | --target-it <args>]
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
 [--lun <lun_id>] [--alias] [--limit <itl_limit>]
+[--outfile <out_file>] [--appendfile <out_file>]
       --target-itl            Provides errors metrics for SCSI target ITLs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
+[--outfile <out_file>] [--appendfile <out_file>]\
 [--lun <lun_id>] [--alias] [--limit <itl_limit>]
       --initiator-itn         Provides errors metrics for NVMe initiator ITNs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
-[--alias] [--limit <itn_limit>] [--namespace <namespace_id>]
+[--alias] [--limit <itn_limit>] [--namespace <namespace_id>]\
+[--outfile <out_file>] [--appendfile <out_file>]
       --target-itn            Provides errors metrics for NVMe target ITNs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
-[--alias] [--limit <itn_limit>] [--namespace <namespace_id>]
+[--alias] [--limit <itn_limit>] [--namespace <namespace_id>]\
+[--outfile <out_file>] [--appendfile <out_file>]
       --initiator-it          Provides errors metrics for initiator ITs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
-[--alias] [--limit <itl_limit>] [--nvme]
+[--alias] [--limit <itl_limit>] [--nvme] [--outfile <out_file>]\
+[--appendfile <out_file>]
       --target-it             Provides errors metrics for target ITs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
-[--alias] [--limit <itl_limit>] [--nvme]
+[--alias] [--limit <itl_limit>] [--nvme] [--outfile <out_file>]\
+[--appendfile <out_file>]
 
  --evaluate-npuload       Provides per port NPU load
                           This option must be run without analytics \
 interface configurations
                           Args :  [--module <mod1,mod2> | --\
-interface <int1,int2>]
+interface <int1,int2>] [--outfile <out_file>]\
+[--appendfile <out_file>]
                           Provides system wide data if --module \
 and --interface arguments are not present
 
@@ -3280,27 +3343,33 @@ initiator-it <args> | --target-it <args>]
       --initiator-itl         Provides ITL view for SCSI initiators ITLs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
-[--\lun <lun_id>] [--alias] [--limit <itl_limit>]
+[--\lun <lun_id>] [--alias] [--limit <itl_limit>]\
+[--outfile <out_file>] [--appendfile <out_file>]
       --target-itl            Provides ITL view for SCSI target ITLs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
-[--\lun <lun_id>] [--alias] [--limit <itl_limit>]
+[--\lun <lun_id>] [--alias] [--limit <itl_limit>]\
+[--outfile <out_file>] [--appendfile <out_file>]
       --initiator-itn         Provides ITN view for NVMe initiator ITNs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
-[--alias] [--limit <itn_limit>] [--namespace <namespace_id>]
+[--alias] [--limit <itn_limit>] [--namespace <namespace_id>]\
+[--outfile <out_file>] [--appendfile <out_file>]
       --target-itn            Provides ITN views for NVMe target ITNs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
-[--alias] [--\limit <itn_limit>] [--namespace <namespace_id>]
+[--alias] [--\limit <itn_limit>] [--namespace <namespace_id>]\
+[--outfile <out_file>] [--appendfile <out_file>]
       --initiator-it          Provides IT view for initiators ITs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
-[--lun <lun_id>] [--alias] [--limit <itl_limit>] [--nvme]
+[--lun <lun_id>] [--alias] [--limit <itl_limit>] [--nvme]\
+[--outfile <out_file>] [--appendfile <out_file>]
       --target-it             Provides IT view for target ITs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>]d>] \
-[--alias] [--limit <itl_limit>] [--nvme]
+[--alias] [--limit <itl_limit>] [--nvme]\
+[--outfile <out_file>] [--appendfile <out_file>]
 
  --minmax                 Provide Min/Max/Peak values of IT(L/N)s
                           ShowAnalytics --minmax [--\
@@ -3311,49 +3380,57 @@ initiator-it <args> | --target-it <args>]
       --initiator-itl         Provides ITL view for SCSI initiators ITLs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
-[--lun <lun_id>] [--alias] [--limit <itl_limit>]
+[--lun <lun_id>] [--alias] [--limit <itl_limit>] [--outfile <out_file>]\
+[--appendfile <out_file>]
       --target-itl            Provides ITL view for SCSI target ITLs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
-[--lun <lun_id>] [--alias] [--limit <itl_limit>]
+[--lun <lun_id>] [--alias] [--limit <itl_limit>] [--outfile <out_file>]\
+[--appendfile <out_file>]
       --initiator-itn         Provides ITN view for NVMe initiator ITNs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
-[--alias] [--limit <itn_limit>] [--namespace <namespace_id>]
+[--alias] [--limit <itn_limit>] [--namespace <namespace_id>]\
+[--outfile <out_file>] [--appendfile <out_file>]
       --target-itn            Provides ITN views for NVMe target ITNs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
-[--alias] [--limit <itn_limit>] [--namespace <namespace_id>]
+[--alias] [--limit <itn_limit>] [--namespace <namespace_id>]\
+[--outfile <out_file>] [--appendfile <out_file>]
       --initiator-it          Provides IT view for initiators ITs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] \
-[--lun <lun_id>] [--alias] [--limit <itl_limit>] [--nvme]
+[--lun <lun_id>] [--alias] [--limit <itl_limit>] [--nvme]\
+[--outfile <out_file>] [--appendfile <out_file>]
       --target-it             Provides IT view for target  ITs
                               Args :  [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>]d>] \
-[--alias] [--limit <itl_limit>] [--nvme]
+[--alias] [--limit <itl_limit>] [--nvme] [--outfile <out_file>]\
+[--appendfile <out_file>]
 
  --outstanding-io         Provides Outstanding io per IT(L/N) for an interface
                           Args : [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--\
-limit] [--refresh] [--nvme] [--namespace <namespace_id>]
+limit] [--refresh] [--alias] [--nvme] [--namespace <namespace_id>]\
+[--outfile <out_file>] [--appendfile <out_file>]
 
  --top                    Provides top IT(L/N)s based on key. Default key is IOPS
                           Args : [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] \
 [--limit] [--key <IOPS|THPUT|ECT>] [--progress] [--alias] [--nvme] [--\
-namespace <namespace_id>]
+namespace <namespace_id>] [--outfile <out_file>] [--appendfile <out_file>]
 
  --version                Provides version details of this utility
 
  --vsan-thput             Provides per vsan scsi/nvme traffic rate for interface.
-                          Args : [--interface <interface>] [--nvme]
+                          Args : [--interface <interface>] [--nvme] \
+[--outfile <out_file>] [--appendfile <out_file>]
 
 ARGUMENTS:
 ---------
 
       --alias                                 Prints device-alias for \
-initiator and target. Terminal Emulator should support 511 width size.
+initiator and target in place of FCID.
       --initiator         <initiator_fcid>    Specifies initiator FCID in \
 the format 0xDDAAPP
       --interface         <interface>         Specifies Interface in \
@@ -3376,6 +3453,10 @@ outstanding-io
       --target            <target_fcid>       Specifies target FCID in \
 the format 0xDDAAPP
       --vsan              <vsan_number>       Specifies vsan number
+      --outfile           <output_file>       Write output of the command \
+to a file on bootflash
+      --appendfile        <output_file>       Append output of the command \
+to a file on bootflash
 
 Note:
   --interface can take range of interfaces in case of --evaluate-npuload \
@@ -3435,6 +3516,8 @@ parser.add_argument('--limit', dest="limit",
                     default=max_flow_limit)
 parser.add_argument('--alias', action="store_true",
                     help='--alias print device-alias info')
+parser.add_argument('--outfile', dest="outfile", help='output file to write')
+parser.add_argument('--appendfile', dest="appendfile", help='output file to append')
 parser.add_argument('--evaluate-npuload', action="store_true",
                     help='To Display per port NPU load')
 parser.add_argument('--module', dest="module", help='module list')
@@ -3505,7 +3588,11 @@ if '__cli_script_args_help' in sys.argv:
     elif ('--errors' in sys.argv) or ('--errorsonly' in sys.argv) or ('--info' in sys.argv) or ('--minmax' in sys.argv):
         if ('--initiator-itl' in sys.argv) or ('--target-itl' in sys.argv):
             if '--alias' not in sys.argv:
-                print('--alias|Prints device-alias for initiator and target. Terminal Emulator should support 511 width size.')
+                print('--alias|Prints device-alias for initiator and target in place of FCID')
+            if '--outfile' not in sys.argv:
+                print('--outfile|Provide output file name to write on bootflash on switch')
+            if '--appendfile' not in sys.argv:
+                print('--appendfile|Provide output file name to append on bootflash on switch')
             if '--initiator' not in sys.argv:
                 print('--initiator|Provide initiator FCID in the format 0xDDAAPP')
             if '--interface' not in sys.argv:
@@ -3520,7 +3607,11 @@ if '__cli_script_args_help' in sys.argv:
                 print('--vsan|Provide vsan number')
         elif ('--initiator-it' in sys.argv) or ('--target-it' in sys.argv):
             if '--alias' not in sys.argv:
-                print('--alias|Prints device-alias for initiator and target. Terminal Emulator should support 511 width size.')
+                print('--alias|Prints device-alias for initiator and target in place of FCID')
+            if '--outfile' not in sys.argv:
+                print('--outfile|Provide output file name to write on bootflash on switch')
+            if '--appendfile' not in sys.argv:
+                print('--appendfile|Provide output file name to append on bootflash on switch')
             if '--initiator' not in sys.argv:
                 print('--initiator|Provide initiator FCID in the format 0xDDAAPP')
             if '--interface' not in sys.argv:
@@ -3533,7 +3624,11 @@ if '__cli_script_args_help' in sys.argv:
                 print('--vsan|Provide vsan number')
         elif ('--initiator-itn' in sys.argv) or ('--target-itn' in sys.argv):
             if '--alias' not in sys.argv:
-                print('--alias|Prints device-alias for initiator and target. Terminal Emulator should support 511 width size.')
+                print('--alias|Prints device-alias for initiator and target in place of FCID')
+            if '--outfile' not in sys.argv:
+                print('--outfile|Provide output file name to write on bootflash on switch')
+            if '--appendfile' not in sys.argv:
+                print('--appendfile|Provide output file name to append on bootflash on switch')
             if '--initiator' not in sys.argv:
                 print('--initiator|Provide initiator FCID in the format 0xDDAAPP')
             if '--interface' not in sys.argv:
@@ -3556,6 +3651,10 @@ if '__cli_script_args_help' in sys.argv:
 
         exit(0)
     elif '--evaluate-npuload' in sys.argv:
+        if '--outfile' not in sys.argv:
+            print('--outfile|Provide output file name to write on bootflash on switch')
+        if '--appendfile' not in sys.argv:
+            print('--appendfile|Provide output file name to append on bootflash on switch')
         if '--interface' not in sys.argv:
             print('--interface|Provide Interface single or multiple')
         if '--module' not in sys.argv:
@@ -3563,7 +3662,11 @@ if '__cli_script_args_help' in sys.argv:
         exit(0)
     elif '--top' in sys.argv:
         if '--alias' not in sys.argv:
-            print('--alias|Prints device-alias for initiator and target. Terminal Emulator should support 511 width size.')
+            print('--alias|Prints device-alias for initiator and target in place of FCID')
+        if '--outfile' not in sys.argv:
+            print('--outfile|Provide output file name to write on bootflash on switch')
+        if '--appendfile' not in sys.argv:
+            print('--appendfile|Provide output file name to append on bootflash on switch')
         if '--initiator' not in sys.argv:
             print('--initiator|Provide initiator FCID in the format 0xDDAAPP')
         if '--interface' not in sys.argv:
@@ -3586,6 +3689,10 @@ if '__cli_script_args_help' in sys.argv:
             print('--namespace|Provide NVMe Namespace id')
         exit(0)
     elif '--vsan-thput' in sys.argv:
+        if '--outfile' not in sys.argv:
+            print('--outfile|Provide output file name to write on bootflash on switch')
+        if '--appendfile' not in sys.argv:
+            print('--appendfile|Provide output file name to append on bootflash on switch')
         if '--interface' not in sys.argv:
             print('--interface|Provide Interface in format module/port')
         if '--nvme' not in sys.argv:
@@ -3593,6 +3700,12 @@ if '__cli_script_args_help' in sys.argv:
         print('<CR>|Run it')
         exit(0)
     elif '--outstanding-io' in sys.argv:
+        if '--alias' not in sys.argv:
+            print('--alias|Prints device-alias for initiator and target in place of FCID')
+        if '--outfile' not in sys.argv:
+            print('--outfile|Provide output file name to write on bootflash on switch')
+        if '--appendfile' not in sys.argv:
+            print('--appendfile|Provide output file name to append on bootflash on switch')
         if '--interface' not in sys.argv:
             print('--interface|Provide Interface in format module/port')
         if '--refresh' not in sys.argv:
@@ -3629,6 +3742,23 @@ if not validateArgs(args, sw_ver):
 
 date = datetime.datetime.now()
 if not args.errorsonly:
+    if args.outfile:
+        outfile = args.outfile
+        os.chdir('/bootflash')
+        try:
+            fh = open(outfile, 'w+')
+        except:
+            print('Unable to write file on bootflash')
+            sys.exit(0)
+        fh.write(str(date)+'\n')
+    if args.appendfile:
+        outfile = args.appendfile
+        os.chdir('/bootflash')
+        try:
+            fh = open(outfile, 'a+')
+        except:
+            print('Unable to append file on bootflash')
+        fh.write(str(date)+'\n')
     print(date)
 
 json_out = getData(args, ver=sw_ver)
@@ -3670,6 +3800,7 @@ else:
                 json_out = ' '
             return_vector = displayTop(args, json_out, return_vector,
                                        ver=sw_ver)
+
     elif args.outstanding_io:
         return_vector = displayOutstandingIo(json_out, [None, 1, None],
                                              ver=sw_ver)

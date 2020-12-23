@@ -3074,21 +3074,27 @@ def getData(args, misc=None, ver=None):
             or args.target_it or args.initiator_itn or args.target_itn):
         lun_field = '' if (args.initiator_it or args.target_it) else lun_field
         if args.initiator_itl:
+            app_id_str = 'app_id ,'
             table_name = 'scsi_initiator_itl_flow'
         elif args.target_itl:
+            app_id_str = 'app_id ,'
             table_name = 'scsi_target_itl_flow'
         elif args.initiator_itn:
+            app_id_str = 'app_id ,'
             table_name = 'nvme_initiator_itn_flow'
         elif args.target_itn:
+            app_id_str = 'app_id ,'
             table_name = 'nvme_target_itn_flow'
         elif args.initiator_it:
+            app_id_str = ''
             table_name = '{0}_initiator_it_flow'.format(table_protocol_str)
         elif args.target_it:
+            app_id_str = ''
             table_name = '{0}_target_it_flow'.format(table_protocol_str)
         # table_name = 'scsi_initiator_itl_flow'
         # CSCvn26029 also added 4 line below
         if args.target and args.initiator and (args.lun or args.namespace):
-            query = "select port, vsan, initiator_id, target_id, {vmid} \
+            query = "select port, vsan, {app_id} initiator_id, target_id, {vmid} \
                 {lun} read_io_rate, write_io_rate, read_io_bandwidth, \
                 write_io_bandwidth, read_io_size_min, read_io_size_max, \
                 {0}, {2}, write_io_size_min, write_io_size_max, {1}, {3}, \
@@ -3106,10 +3112,10 @@ def getData(args, misc=None, ver=None):
                 peak_read_io_bandwidth, peak_write_io_bandwidth from \
                     {proto}.{fc_table}".format(trib, twib, tric, twic,
                                                lun=lun_field, proto=protocol_str,
-                                           fc_table=table_name, vmid=vmid_str)
+                                           fc_table=table_name, vmid=vmid_str, app_id = app_id_str)
         else:
             if args.minmax:
-                query = "select port,vsan,initiator_id, {vmid}\
+                query = "select port,vsan, {app_id} initiator_id, {vmid}\
                     target_id,{lun}peak_read_io_rate,peak_write_io_rate,\
                     peak_read_io_bandwidth,peak_write_io_bandwidth,\
                     read_io_completion_time_min,read_io_completion_time_max,\
@@ -3119,32 +3125,34 @@ def getData(args, misc=None, ver=None):
                     total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,\
                     read_io_failures,write_io_failures from {proto}.{fc_table}\
                     ".format(trib, twib, tric, twic, lun=lun_field,
-                             proto=protocol_str, fc_table=table_name, vmid=vmid_str)
+                             proto=protocol_str, fc_table=table_name, vmid=vmid_str, app_id = app_id_str)
             else:
                 if misc is None:
                     # consider case of args.error also
-                    query = "select port,vsan,initiator_id,target_id,{lun} \
+                    query = "select port,vsan, {app_id} initiator_id,target_id,{lun} \
                         total_read_io_time,total_write_io_time, {vmid} {2},{3},\
                         read_io_aborts,write_io_aborts,read_io_failures,\
                         write_io_failures from {proto}.{fc_table}\
                         ".format(trib, twib, tric, twic, lun=lun_field,
-                                 proto=protocol_str, fc_table=table_name, vmid=vmid_str)
+                                 proto=protocol_str, fc_table=table_name, vmid=vmid_str, app_id = app_id_str )
                 else:
-                    query = "select port,vsan,initiator_id, {vmid}\
+                    query = "select port,vsan, {app_id} initiator_id, {vmid}\
                         target_id,{lun}read_io_rate,write_io_rate,\
                         read_io_bandwidth,write_io_bandwidth,\
                         total_read_io_time,total_write_io_time,{2},{3},\
                         read_io_aborts,write_io_aborts,read_io_failures,\
                         write_io_failures from {proto}.{fc_table}\
                         ".format(trib, twib, tric, twic, lun=lun_field,
-                                 proto=protocol_str, fc_table=table_name, vmid=vmid_str)
+                                 proto=protocol_str, fc_table=table_name, vmid=vmid_str, app_id = app_id_str)
 
     # query = "select all from fc-scsi." + table_name ; #CSCvn26029
     if args.vsan_thput:
+        app_id_str = 'app_id ,'
         query = "select port, vsan, read_io_bandwidth, write_io_bandwidth, \
             read_io_size_min, write_io_size_min, read_io_rate, \
             write_io_rate from {proto}.logical_port".format(proto=protocol_str)
     if args.top:
+        app_id_str = 'app_id ,'
         if args.interface is not None:
             pcre = re.match(r'port-channel(\d+)', args.interface)
             if pcre is not None:
@@ -3159,15 +3167,15 @@ def getData(args, misc=None, ver=None):
                     'total_time_metric_based_write_io_count',
                     'total_read_io_time', 'total_write_io_time']
         if not misc:
-            query = "select port, vsan, initiator_id, {vmid} target_id, {0}\
-                ".format(lun_field[:-1], vmid=vmid_str)
+            query = "select port, vsan, {app_id} initiator_id, {vmid} target_id, {0}\
+                ".format(lun_field[:-1], vmid=vmid_str, app_id = app_id_str)
             for jj in wkey:
                 query = query + ',' + str(jj)
             query = query + " from {0}.{1}_initiator_it{2}_flow\
                 ".format(protocol_str, table_protocol_str, ln_str)
         elif misc == 1:
-            query = "select port, vsan, {vmid} initiator_id, target_id, {0}\
-                ".format(lun_field[:-1],vmid=vmid_str)
+            query = "select port, vsan, {app_id} {vmid} initiator_id, target_id, {0}\
+                ".format(lun_field[:-1],vmid=vmid_str, app_id = app_id_str)
             for jj in wkey:
                 query = query + ',' + str(jj)
             query = query + " from {0}.{1}_target_it{2}_flow\
@@ -3176,24 +3184,25 @@ def getData(args, misc=None, ver=None):
             return None
 
     if args.outstanding_io:
+        app_id_str = 'app_id ,'
         pcre = re.match(r'port-channel(\d+)', args.interface)
         if pcre is not None:
             print("Port channel is not supported by --outstanding-io option")
             exit()
         if not misc:
-            query = "select port, vsan, initiator_id, {vmid} \
+            query = "select port, vsan, {app_id} initiator_id, {vmid} \
                 target_id, {lun} active_io_read_count, \
                 active_io_write_count \
                 from {proto}.{proto1}_initiator_it{ln}_flow\
                 ".format(lun=lun_field, proto=protocol_str,
-                         proto1=table_protocol_str, ln=ln_str, vmid=vmid_str)
+                         proto1=table_protocol_str, ln=ln_str, vmid=vmid_str, app_id = app_id_str)
         else:
-            query = "select port, vsan, initiator_id, {vmid} \
+            query = "select port, vsan, {app_id} initiator_id, {vmid} \
                 target_id, {lun} active_io_read_count, \
                 active_io_write_count \
                 from {proto}.{proto1}_target_it{ln}_flow\
                 ".format(lun=lun_field, proto=protocol_str,
-                         proto1=table_protocol_str, ln=ln_str, vmid=vmid_str)
+                         proto1=table_protocol_str, ln=ln_str, vmid=vmid_str, app_id = app_id_str)
 
     filter_count = 0
     filters = {'interface': 'port', 'target': 'target_id',

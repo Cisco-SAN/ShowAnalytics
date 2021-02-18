@@ -1157,14 +1157,22 @@ def displayDetailOverlay(json_out, ver=None):
     print('ECT: Exchange Completion Time, DAL: Data Access Latency')
     print()
     if args.outfile or args.appendfile:
-        fh.write('B: Bytes, s: Seconds, Avg: Average, Acc: Accumulative,'+'\n')
-        fh.write('ns: Nano Seconds, ms: Milli Seconds, us: Micro Seconds,'+'\n')
-        fh.write('GB: Giga Bytes, MB: Mega Bytes, KB: Killo Bytes,'+'\n')
-        fh.write('ECT: Exchange Completion Time, DAL: Data Access Latency'+'\n')
+        try:
+            fh.write('B: Bytes, s: Seconds, Avg: Average, Acc: Accumulative,'+'\n')
+            fh.write('ns: Nano Seconds, ms: Milli Seconds, us: Micro Seconds,'+'\n')
+            fh.write('GB: Giga Bytes, MB: Mega Bytes, KB: Killo Bytes,'+'\n')
+            fh.write('ECT: Exchange Completion Time, DAL: Data Access Latency'+'\n')
+        except OSError as err:
+            print("Not able to write to a file, No space left on device")
+            sys.exit(0)
     if 'port' in json_out['values']['1']:
         print('\nInterface : ' + json_out['values']['1']['port'])
         if args.outfile or args.appendfile:
-            fh.write('\nInterface : ' + json_out['values']['1']['port']+'\n')
+            try:
+                fh.write('\nInterface : ' + json_out['values']['1']['port']+'\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
 
     if args.alias:
         vsan = json_out['values']['1']['vsan']
@@ -1298,8 +1306,16 @@ def displayDetailOverlay(json_out, ver=None):
     print(t)
     if args.outfile or args.appendfile:
         data = t.get_string()
-        fh.write(data+'\n')
-        fh.close()
+        try:
+            fh.write(data+'\n')
+        except OSError as err:
+            print("Not able to write to a file, No space left on device")
+            sys.exit(0)
+        try:
+            fh.close()
+        except OSError as err:
+            print("Not able to write to a file, No space left on device")
+            sys.exit(0)
 
 def displayFlowInfoOverlay(json_out, ver=None):
     '''
@@ -1307,7 +1323,7 @@ def displayFlowInfoOverlay(json_out, ver=None):
     * Function: displayFlowInfoOverlay
     *
     * Input: json_out is the json data returned by switch as response for
-    *        querry
+    *        query
     * Action: Displays statistics of a ITLs from json_out
     * Returns: None
     **********************************************************************************
@@ -1326,23 +1342,25 @@ def displayFlowInfoOverlay(json_out, ver=None):
         if(args.initiator_it or args.target_it):	
             col_names = ["{0:^{w1}} | {1:^{w2}} | {2:^{w3}} | {3:^{w4}} ".format('VSAN','Initiator',\
                          'VMID','Target',w1=max_vsan_len,w2=max_fcid_len,w3=max_vmid_len,w4=max_fcid_len),\
-                         'Avg IOPS','Avg Throughput', 'Avg ECT']	
+                         'Avg IOPS','Avg Throughput', 'Avg ECT', 'Avg Data Access Latency','Avg IO Size']
         else:	
             col_names = ["{0:^{w1}} | {1:^{w2}} | {2:^{w3}} | {3:^{w4}} | {4:^{w5}} ".\
                         format('VSAN','Initiator','VMID','Target',lun_str,w1=max_vsan_len,w2=max_fcid_len,\
-                        w3=max_vmid_len,w4=max_fcid_len,w5=lun_str_len),'Avg IOPS','Avg Throughput', 'Avg ECT']
+                        w3=max_vmid_len,w4=max_fcid_len,w5=lun_str_len),'Avg IOPS','Avg Throughput', 'Avg ECT',\
+                        'Avg Data Access Latency','Avg IO Size']
     else:
         if(args.initiator_it or args.target_it):
             col_names = ["{0:^{w1}} | {1:^{w2}} | {2:^{w3}} ".format('VSAN','Initiator',\
                          'Target',w1=max_vsan_len,w2=max_fcid_len,w3=max_fcid_len),\
-                         'Avg IOPS','Avg Throughput', 'Avg ECT']
+                         'Avg IOPS','Avg Throughput', 'Avg ECT', 'Avg Data Access Latency','Avg IO Size']
         else:
             col_names = ["{0:^{w1}} | {1:^{w2}} | {2:^{w3}} | {3:^{w4}} ".\
                         format('VSAN','Initiator','Target',lun_str,w1=max_vsan_len,w2=max_fcid_len,\
-                        w3=max_fcid_len,w4=lun_str_len),'Avg IOPS','Avg Throughput', 'Avg ECT']
+                        w3=max_fcid_len,w4=lun_str_len),'Avg IOPS','Avg Throughput', 'Avg ECT',\
+                        'Avg Data Access Latency','Avg IO Size']
     metrics = []
     port, vsan, initiator, lun, target, vmid = '0/0', '', '', '', '', ''
-    totalread, totalwrite, readCount, writeCount = 0, 0, 0, 0
+    totalread, totalwrite, readCount, writeCount, readIoIntTime, writeIoIntTime, readIoB, writeIoB  = 0, 0, 0, 0, 0, 0, 0, 0
     sizeJson = len(json_out['values'])
     counter = 1
     max_iops = 0
@@ -1415,17 +1433,31 @@ def displayFlowInfoOverlay(json_out, ver=None):
                         ver == '8.3(1)'):
                     writeCount = int(value)
                     continue
+                if (str(key) == 'total_read_io_initiation_time' and value != 0):
+                    readIoIntTime = int(value)
+                    continue
+                if (str(key) == 'total_write_io_initiation_time' and value != 0):
+                    writeIoIntTime = int(value)
+                    continue
+                if (str(key) == 'total_read_io_bytes' and value != 0):
+                    readIoB = int(value)
+                    continue
+                if (str(key) == 'total_write_io_bytes' and value != 0):
+                    writeIoB = int(value)
+                    continue
             counter = counter + 1
             if vmid_enabled:
                 pre_a[str(port) + '::' + str(vsan) + '::' + str(initiator) + '::' + str(vmid) + '::' +\
                   str(target) + '::' + str(lun)] = str(totalread) +\
                   '::' + str(totalwrite) + '::' + str(readCount) +\
-                  '::' + str(writeCount)
+                  '::' + str(writeCount) + '::' + str(readIoIntTime) + '::' + str(writeIoIntTime) +\
+                  '::' + str(readIoB) + '::' + str(writeIoB)
             else:
                 pre_a[str(port) + '::' + str(vsan) + '::' + str(initiator) + '::'	
                   + str(target) + '::' + str(lun)] = str(totalread) +\
                   '::' + str(totalwrite) + '::' + str(readCount) +\
-                  '::' + str(writeCount)
+                  '::' + str(writeCount) + '::' + str(readIoIntTime) + '::' + str(writeIoIntTime) +\
+                  '::' + str(readIoB) + '::' + str(writeIoB)
 
         if len(pre_a) < 200:
             # adding sleep for more accurate results CSCvp66699
@@ -1436,8 +1468,8 @@ def displayFlowInfoOverlay(json_out, ver=None):
 
     while counter <= sizeJson:
         vmid = ''
-        iopsR, thputR, ectR = 0, 0, 0
-        iopsW, thputW, ectW = 0, 0, 0
+        iopsR, thputR, ectR, dalR, IoSizeR = 0, 0, 0, 0, 0
+        iopsW, thputW, ectW, dalW, IoSizeW = 0, 0, 0, 0, 0
         if args.minmax:
             (peak_read_iops, peak_write_iops, peak_read_thput,
              peak_write_thput, read_ect_min, read_ect_max,
@@ -1522,6 +1554,19 @@ def displayFlowInfoOverlay(json_out, ver=None):
             if str(key) == 'write_io_completion_time_max' and value != 0:
                 write_ect_max = value
                 continue
+            if (str(key) == 'total_read_io_initiation_time' and value != 0):
+                readIoIntTime = int(value)
+                continue
+            if (str(key) == 'total_write_io_initiation_time' and value != 0):
+                writeIoIntTime = int(value)
+                continue
+            if (str(key) == 'total_read_io_bytes' and value != 0):
+                readIoB = int(value)
+                continue
+            if (str(key) == 'total_write_io_bytes' and value != 0):
+                writeIoB = int(value)
+                continue
+
         if args.alias:
             if (str(initiator), int(vsan)) in fcid2pwwn:
                 init_pwwn = fcid2pwwn[(str(initiator), int(vsan))]
@@ -1551,6 +1596,7 @@ def displayFlowInfoOverlay(json_out, ver=None):
                     + '::' + str(peak_write_thput) + '::' + str(read_ect_min) \
                     + '::' + str(read_ect_max) + '::' + str(write_ect_min) \
                     + '::' + str(write_ect_max)
+
             max_iops = max([int(i) for i in (peak_write_iops, peak_read_thput, max_iops)])
         else:
             if vmid_enabled:
@@ -1561,21 +1607,34 @@ def displayFlowInfoOverlay(json_out, ver=None):
                     + '::' + str(target) + '::' + str(lun)
             try:
                 prev_totalread, prev_totalwrite, prev_readcount,\
-                    prev_writecount = pre_a[itl_id].split('::')
+                    prev_writecount, prev_readIoIntTime, prev_writeIoIntTime, pre_readIoB, pre_writeIoB = pre_a[itl_id].split('::')
             except Exception:
                 prev_totalread, prev_totalwrite, prev_readcount,\
-                    prev_writecount = 0, 0, 0, 0
+                    prev_writecount, prev_readIoIntTime, prev_writeIoIntTime, pre_readIoB, pre_writeIoB  = 0, 0, 0, 0, 0, 0, 0, 0
             a = itl_id + '::' + str(iopsR) + '::' + str(iopsW) + '::' \
                 + str(thputR) + '::' + str(thputW)
             diff_readCount = int(readCount)-int(prev_readcount)
             diff_writeCount = int(writeCount)-int(prev_writecount)
+            diff_readIoIntTime = int(readIoIntTime)-int(prev_readIoIntTime)
+            diff_writeIoIntTime = int(writeIoIntTime) - int(prev_writeIoIntTime)
+            diff_readIoB = int(readIoB) - int(pre_readIoB)
+            diff_writeIoB = int(writeIoB) - int(pre_writeIoB)
             if diff_readCount != 0:
                 ectR = abs(int(totalread) -
                            int(prev_totalread)) // diff_readCount
             if diff_writeCount != 0:
                 ectW = abs(int(totalwrite) -
                            int(prev_totalwrite)) // diff_writeCount
-            a = a + '::' + str(ectR) + '::' + str(ectW)
+            if diff_readCount != 0:
+                dalR =  diff_readIoIntTime // diff_readCount
+            if diff_writeCount != 0:
+                dalW =  diff_writeIoIntTime // diff_writeCount
+            if diff_readCount != 0:
+                IoSizeR =  diff_readIoB // diff_readCount
+            if diff_writeCount != 0:
+                IoSizeW =  diff_writeIoB // diff_writeCount
+
+            a = a + '::' + str(ectR) + '::' + str(ectW) + '::' + str(dalR) + '::' + str(dalW) + '::' + str(IoSizeR) + '::' + str(IoSizeW)
             max_iops = max([int(i) for i in (max_iops, iopsR, iopsW)])
         counter = counter + 1
 
@@ -1584,7 +1643,6 @@ def displayFlowInfoOverlay(json_out, ver=None):
     port_metrics = {}
     for l in metrics:
         parts = l.split('::')
-
         port = str(parts[0])
         if port in port_metrics:
             port_metrics[port].append(l)
@@ -1597,7 +1655,7 @@ def displayFlowInfoOverlay(json_out, ver=None):
                        key=lambda x: tuple([int(i) for i in
                                             x[2:].split('/')])):
         t = PrettyTable(col_names)
-        col_names_empty = ['', '', '', ''] if not args.minmax else ['', '',
+        col_names_empty = ['', '', '', '', '', ''] if not args.minmax else ['', '',
                                                                     '', '', '']
 
         max_iops_len = len(str(max_iops))
@@ -1606,7 +1664,7 @@ def displayFlowInfoOverlay(json_out, ver=None):
                           ' {0:^{w}} | {1:^{w}} '.format('Read',
                                                          'Write',
                                                          w=max_iops_len),
-                          '   Read   |   Write   ', '  Read   |   Write  ']
+                          '   Read   |   Write   ', '  Read   |   Write  ', '  Read   |   Write  ', '  Read   |   Write  ']
         if args.minmax:
             col_names_desc = ['',
                               '{0:^{w}} | {1:^{w}} '.format('Read',
@@ -1621,6 +1679,13 @@ def displayFlowInfoOverlay(json_out, ver=None):
             t.align[col_names[0]] = 'l'
 
         print("\n Interface " + port)
+        if args.outfile or args.appendfile:
+            try:
+                fh.write("\n Interface " + port + "\n")
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
+
         for l in port_metrics[port]:
             col_values = []
             parts = l.split('::')
@@ -1641,10 +1706,13 @@ def displayFlowInfoOverlay(json_out, ver=None):
                 col_values.append(" {0:>7} | {1:>8} "
                                   .format(time_conv(float(parts[10])),
                                           time_conv(float(parts[11]))))
-                if args.minmax:	
-                    col_values.append("{0:>9} |{1:>10}"	
-                                      .format(time_conv(float(parts[12])),
-                                              time_conv(float(parts[13]))))
+                col_values.append(" {0:>7} | {1:>8} "
+                                  .format(time_conv(float(parts[12])),
+                                          time_conv(float(parts[13]))))
+                if not args.minmax:
+                    col_values.append(" {0:>7} | {1:>8} "
+                                      .format(thput_conv(float(parts[14])),
+                                              thput_conv(float(parts[15]))))
 
             else:
                 if not (args.initiator_it or args.target_it):
@@ -1663,26 +1731,47 @@ def displayFlowInfoOverlay(json_out, ver=None):
                 col_values.append(" {0:>7} | {1:>8} "
                                   .format(time_conv(float(parts[9])),
                                           time_conv(float(parts[10]))))
-                if args.minmax:
-                    col_values.append("{0:>9} |{1:>10}"
-                                      .format(time_conv(float(parts[11])),
-                                              time_conv(float(parts[12]))))
+                col_values.append(" {0:>7} | {1:>8} "
+                                  .format(time_conv(float(parts[11])),
+                                          time_conv(float(parts[12]))))
+                if not args.minmax:
+                    col_values.append(" {0:>7} | {1:>8} "
+                                      .format(thput_conv(float(parts[13])),
+                                              thput_conv(float(parts[14]))))
 
             t.add_row(col_values)
         print(t)
+        if args.outfile or args.appendfile:
+            data = t.get_string()
+            try:
+                fh.write(data+'\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
+
     if args.outfile or args.appendfile:
-        data = t.get_string()
-        fh.write(data+'\n')
         if not args.minmax:
-            fh.close()
+            try:
+                fh.close()
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
 
     if args.minmax:
         print('*These values are calculated since the metrics were last \
 cleared.')
         if args.outfile or args.appendfile:
-            fh.write('*These values are calculated since the metrics were last \
+            try:
+                fh.write('*These values are calculated since the metrics were last \
 cleared.'+'\n')
-            fh.close()
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
+            try:
+                fh.close()
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
 
 
 def displayErrorsOverlay(json_out, date, ver=None):
@@ -1848,7 +1937,11 @@ def displayErrorsOverlay(json_out, date, ver=None):
 
         print("\n Interface " + port)
         if args.outfile or args.appendfile:
-            fh.write("\n Interface " + port+'\n')
+            try:
+                fh.write("\n Interface " + port+'\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
         for l in port_metrics[port]:
             col_values = []
             parts = l.split('::')
@@ -1882,8 +1975,18 @@ def displayErrorsOverlay(json_out, date, ver=None):
         print(t)
         if args.outfile or args.appendfile:
             data = t.get_string()
-            fh.write(data+'\n')
+            try:
+                fh.write(data+'\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
+
+    if args.outfile or args.appendfile:
+        try:
             fh.close()
+        except OSError as err:
+            print("Not able to write to a file, No space left on device")
+            sys.exit(0)
 
 
 def displayNpuloadEvaluation(json_out, ver=None):
@@ -1963,11 +2066,19 @@ run prior to configuring analytics')
     print('There are {} interfaces to be evaluated. Expected time is {}\
 '.format(int_count, time_formator(expected_time)))
     if args.outfile or args.appendfile:
-        fh.write('There are {} interfaces to be evaluated. Expected time is {}\
+        try:
+            fh.write('There are {} interfaces to be evaluated. Expected time is {}\
 '.format(int_count, time_formator(expected_time))+'\n')
+        except OSError as err:
+            print("Not able to write to a file, No space left on device")
+            sys.exit(0)
     conf_response = str(input('Do you want to continue [Yes|No]? [n]'))
     if args.outfile or args.appendfile:
-        fh.write('Do you want to continue [Yes|No]? [n]' + conf_response+'\n')
+        try:
+            fh.write('Do you want to continue [Yes|No]? [n]' + conf_response+'\n')
+        except OSError as err:
+            print("Not able to write to a file, No space left on device")
+            sys.exit(0)
     if conf_response not in ['Y', 'y', 'Yes', 'yes', 'YES']:
         return False
 
@@ -2197,7 +2308,12 @@ run prior to configuring analytics')
             else:
                 print("Module {}".format(mod))
                 if args.outfile or args.appendfile:
-                    fh.write("Module {}".format(mod)+'\n')
+                    try:
+                        fh.write("Module {}".format(mod)+'\n')
+                    except OSError as err:
+                        print("Not able to write to a file, No space left on device")
+                        sys.exit(0)
+
         m_itl_count, m_scsi_iops, m_itn_count, m_nvme_iops = 0, 0, 0, 0
 
         t = PrettyTable(['', '  ', ' SCSI ', ' NVMe ', ' Total ', 'SCSI',
@@ -2244,14 +2360,23 @@ run prior to configuring analytics')
             print(t)
             if args.outfile or args.appendfile:
                 data = t.get_string()
-                fh.write(data+'\n')
+                try:
+                    fh.write(data+'\n')
+                except OSError as err:
+                    print("Not able to write to a file, No space left on device")
+                    sys.exit(0)
 
             if not interface_list_flag:
                 print("Recommended port sampling size: {0}\n\
 ".format(calculate_max_sample_window(mod_iops_list, mod_flow_list)))
                 if args.outfile or args.appendfile:
-                    fh.write("Recommended port sampling size: {0}\n\
+                    try:
+                        fh.write("Recommended port sampling size: {0}\n\
 ".format(calculate_max_sample_window(mod_iops_list, mod_flow_list))+'\n')
+                    except OSError as err:
+                        print("Not able to write to a file, No space left on device")
+                        sys.exit(0)
+
 
     if sig_hup_flag not in [None, 'Armed']:
         file_handler.write('\n')
@@ -2266,18 +2391,34 @@ run prior to configuring analytics')
         print('* This total is an indicative reference based on \
 evaluated ports')
         if args.outfile or args.appendfile:
-            fh.write('* This total is an indicative reference based on \
+            try:
+                fh.write('* This total is an indicative reference based on \
 evaluated ports'+'\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
         if error_log != []:
             print('\nErrors:\n------\n')
             if args.outfile or args.appendfile:
-                fh.write('\nErrors:\n------\n'+'\n')
+                try:
+                    fh.write('\nErrors:\n------\n'+'\n')
+                except OSError as err:
+                    print("Not able to write to a file, No space left on device")
+                    sys.exit(0)
             for msg in error_log:
                 print(msg)
                 if args.outfile or args.appendfile:
-                    fh.write(msg+'\n')
+                    try:
+                        fh.write(msg+'\n')
+                    except OSError as err:
+                        print("Not able to write to a file, No space left on device")
+                        sys.exit(0)
             if args.outfile or args.appendfile:
-                fh.close()
+                try:
+                    fh.close()
+                except OSError as err:
+                    print("Not able to write to a file, No space left on device")
+                    sys.exit(0)
     cli.cli('logit ShowAnalytics: Task Completed')
 
 
@@ -2296,6 +2437,7 @@ def displayVsanOverlay(json_out, ver=None):
     '''
 
     # have to write that
+
     metrics = {}
     sizeJson = len(json_out['values'])
     counter = 1
@@ -2412,14 +2554,26 @@ def displayVsanOverlay(json_out, ver=None):
         print(t)
         if args.outfile or args.appendfile:
             data = t.get_string()
-            fh.write("\n Interface " + port+'\n')
-            fh.write(data+'\n')
+            try:
+                fh.write("\n Interface " + port+'\n')
+                fh.write(data+'\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
 
     proto = 'NVMe' if args.nvme else 'SCSI'
     print('Note: This data is only for {0}\n'.format(proto))
     if args.outfile or args.appendfile:
-        fh.write('Note: This data is only for {0}\n'.format(proto))
-        fh.close()
+        try:
+            fh.write('Note: This data is only for {0}\n'.format(proto))
+        except OSError as err:
+            print("Not able to write to a file, No space left on device")
+            sys.exit(0)
+        try:
+            fh.close()
+        except OSError as err:
+            print("Not able to write to a file, No space left on device")
+            sys.exit(0)
 
 
 def displayTop(args, json_out, return_vector, ver=None):
@@ -2444,7 +2598,7 @@ def displayTop(args, json_out, return_vector, ver=None):
     global top_count
     global error
     global error_flag
-    
+
     vmid_enabled = getVmidFeature()
 
     if args.progress:
@@ -2724,17 +2878,33 @@ def displayTop(args, json_out, return_vector, ver=None):
     if args.outfile or args.appendfile:
         data = t.get_string()
         try:
-            fh.write(data+'\n')
+            try:
+                fh.write(data + '\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
         except:
             if args.appendfile:
                 outfile = args.appendfile
             if args.outfile:
                 outfile = args.outfile
             os.chdir('/bootflash')
-            fh = open(outfile, 'a+')
-            fh.write(str(datetime.datetime.now())+'\n')
-            fh.write(data+'\n')
-        fh.close()
+            try:
+                fh = open(outfile, 'a+')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
+            try:
+                fh.write(str(datetime.datetime.now())+'\n')
+                fh.write(data+'\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
+        try:
+            fh.close()
+        except OSError as err:
+            print("Not able to write to a file, No space left on device")
+            sys.exit(0)
 
     print()
     if args.key == 'ECT':
@@ -2760,6 +2930,7 @@ def displayOutstandingIo(json_out, return_vector, ver=None):
     * Returns: return_vector is the same one as described in Input
     **********************************************************************************
     '''
+
     global error
     global error_flag
 
@@ -2912,7 +3083,11 @@ interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
         print(pdata)
         if args.outfile or args.appendfile:
             try:
-                fh.write(pdata + '\n')
+                try:
+                    fh.write(pdata + '\n')
+                except OSError as err:
+                    print("Not able to write to a file, No space left on device")
+                    sys.exit(0)
             except:
                 if args.appendfile:
                     outfile = args.appendfile
@@ -2920,8 +3095,12 @@ interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
                     outfile = args.outfile
                 os.chdir('/bootflash')
                 fh = open(outfile, 'a+')
-                fh.write(str(datetime.datetime.now()) + '\n')
-                fh.write(pdata + '\n')
+                try:
+                    fh.write(str(datetime.datetime.now()) + '\n')
+                    fh.write(pdata + '\n')
+                except OSError as err:
+                    print("Not able to write to a file, No space left on device")
+                    sys.exit(0)
 
     t = PrettyTable(col_names)
     t.add_row([" ", "Read | Write"])
@@ -2966,22 +3145,42 @@ interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
     if args.outfile or args.appendfile:
         data = t.get_string()
         try:
-            fh.write(data + '\n')
+            try:
+                fh.write(data + '\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
         except:
             if args.appendfile:
                 outfile = args.appendfile
             if args.outfile:
                 outfile = args.outfile
             os.chdir('/bootflash')
-            fh = open(outfile, 'a+')
-            fh.write(str(datetime.datetime.now()) + '\n')
-            fh.write(data + '\n')
+            try:
+                fh = open(outfile, 'a+')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
+            try:
+                fh.write(str(datetime.datetime.now()) + '\n')
+                fh.write(data + '\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
 
     if args.limit == max_flow_limit:
         print ("Instantaneous Qdepth : {}".format(qdpth))
         if args.outfile or args.appendfile:
-            fh.write("Instantaneous Qdepth : {}".format(qdpth)+'\n')
-            fh.close()
+            try:
+                fh.write("Instantaneous Qdepth : {}".format(qdpth)+'\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
+            try:
+                fh.close()
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
 
         line_count += 1
     print('')
@@ -3132,7 +3331,9 @@ def getData(args, misc=None, ver=None):
                     query = "select port,vsan, {app_id} initiator_id,target_id,{lun} \
                         total_read_io_time,total_write_io_time, {vmid} {2},{3},\
                         read_io_aborts,write_io_aborts,read_io_failures,\
-                        write_io_failures from {proto}.{fc_table}\
+                        write_io_failures,total_read_io_initiation_time,\
+                        total_write_io_initiation_time,total_read_io_bytes,\
+                        total_write_io_bytes from {proto}.{fc_table}\
                         ".format(trib, twib, tric, twic, lun=lun_field,
                                  proto=protocol_str, fc_table=table_name, vmid=vmid_str, app_id = app_id_str )
                 else:
@@ -3141,7 +3342,9 @@ def getData(args, misc=None, ver=None):
                         read_io_bandwidth,write_io_bandwidth,\
                         total_read_io_time,total_write_io_time,{2},{3},\
                         read_io_aborts,write_io_aborts,read_io_failures,\
-                        write_io_failures from {proto}.{fc_table}\
+                        write_io_failures,total_read_io_initiation_time,\
+                        total_read_io_bytes,total_write_io_bytes,\
+                        total_write_io_initiation_time from {proto}.{fc_table}\
                         ".format(trib, twib, tric, twic, lun=lun_field,
                                  proto=protocol_str, fc_table=table_name, vmid=vmid_str, app_id = app_id_str)
 
@@ -3343,7 +3546,8 @@ and --interface arguments are not present
 
  --help                   Provides help about this utility
 
- --info                   Provide information about IT(L/N)s
+ --info                   Provide information about IT(L/N) flows \
+ gathered over 1 second
                           ShowAnalytics --info [--\
 initiator-itl <args> | --target-itl <args> | --\
 initiator-itn <args> | --target-itn <args> | --\
@@ -3440,6 +3644,8 @@ ARGUMENTS:
 
       --alias                                 Prints device-alias for \
 initiator and target in place of FCID.
+      --appendfile        <output_file>       Append output of the command \
+to a file on bootflash
       --initiator         <initiator_fcid>    Specifies initiator FCID in \
 the format 0xDDAAPP
       --interface         <interface>         Specifies Interface in \
@@ -3455,6 +3661,8 @@ for --evaluate-npuload option example 1,2
       --namespace         <namespace_id>      Specifies namespace in \
 the range 1-255
       --nvme                                  Provides NVMe related stats.
+      --outfile           <output_file>       Write output of the command \
+to a file on bootflash
       --progress                              Provides progress for --top \
 option. Should not be used on console
       --refresh                               Refreshes output of --\
@@ -3462,10 +3670,8 @@ outstanding-io
       --target            <target_fcid>       Specifies target FCID in \
 the format 0xDDAAPP
       --vsan              <vsan_number>       Specifies vsan number
-      --outfile           <output_file>       Write output of the command \
-to a file on bootflash
-      --appendfile        <output_file>       Append output of the command \
-to a file on bootflash
+
+
 
 Note:
   --interface can take range of interfaces in case of --evaluate-npuload \
@@ -3487,7 +3693,7 @@ argparse.ArgumentParser.print_help = print_util_help
 parser = argparse.ArgumentParser(prog='ShowAnalytics',
                                  description='ShowAnalytics')
 parser.add_argument('--version', action='version',
-                    help='version', version='%(prog)s 3.0.0')
+                    help='version', version='%(prog)s 4.0.0')
 parser.add_argument('--info', action="store_true",
                     help='--info | --errors mandatory')
 parser.add_argument('--nvme', action="store_true",
@@ -3750,30 +3956,52 @@ if not validateArgs(args, sw_ver):
     os._exit(1)
 
 date = datetime.datetime.now()
+
+if args.outfile:
+    outfile = args.outfile
+    os.chdir('/bootflash')
+    try:
+        fh = open(outfile, 'w+', 1)
+    except:
+        print('Unable to write file on bootflash')
+        sys.exit(0)
+    try:
+        if not args.top or args.outstanding_io:
+            fh.write(str(date) + '\n')
+        if args.top:
+            fh.write('--------Output of --top--------' + '\n')
+        if args.outstanding_io:
+            fh.write('--------Output of --outstanding-io--------' + '\n')
+    except OSError as err:
+        print("Not able to write to a file, No space left on device")
+        sys.exit(0)
+
+if args.appendfile:
+    outfile = args.appendfile
+    os.chdir('/bootflash')
+    try:
+        fh = open(outfile, 'a+', 1)
+    except:
+        print('Unable to append file on bootflash')
+    try:
+        if not args.top or args.outstanding_io:
+            fh.write(str(date)+'\n')
+        if args.top:
+            fh.write('--------Output of --top--------'+'\n')
+        if args.outstanding_io:
+            fh.write('--------Output of --outstanding-io--------'+'\n')
+    except OSError as err:
+        print("Not able to write to a file, No space left on device")
+        sys.exit(0)
+
 if not args.errorsonly:
-    if args.outfile:
-        outfile = args.outfile
-        os.chdir('/bootflash')
-        try:
-            fh = open(outfile, 'w+')
-        except:
-            print('Unable to write file on bootflash')
-            sys.exit(0)
-        fh.write(str(date)+'\n')
-    if args.appendfile:
-        outfile = args.appendfile
-        os.chdir('/bootflash')
-        try:
-            fh = open(outfile, 'a+')
-        except:
-            print('Unable to append file on bootflash')
-        fh.write(str(date)+'\n')
     print(date)
 
 json_out = getData(args, ver=sw_ver)
 
 if not json_out and (args.top or args.outstanding_io):
     json_out = ' '
+
 if not json_out and not args.evaluate_npuload:
     if error_flag and 'empty' not in error['getData_str']:
         if error['getData_str'] == '':
@@ -3785,20 +4013,61 @@ if not json_out and not args.evaluate_npuload:
 else:
     if args.info:
         if args.target and args.initiator and (args.lun or args.namespace):
+            if args.outfile or args.appendfile:
+                if args.lun:
+                    lun_namespace = args.lun
+                elif args.namespace:
+                    lun_namespace = args.namespace
+                try:
+                    fh.write('---Detailed statistics of initiator:{} target:{} lun/namespace:{}---'\
+                             .format(args.initiator, args.target, lun_namespace) + '\n')
+                except OSError as err:
+                    print("Not able to write to a file, No space left on device")
+                    sys.exit(0)
             displayDetailOverlay(json_out, ver=sw_ver)
         else:
+            if args.outfile or args.appendfile:
+                try:
+                    fh.write('--------Output of --info--------' + '\n')
+                except OSError as err:
+                    print("Not able to write to a file, No space left on device")
+                    sys.exit(0)
             displayFlowInfoOverlay(json_out, ver=sw_ver)
 
     if args.errors or args.errorsonly:
+        if args.outfile or args.appendfile:
+            try:
+                fh.write('--------Output of --errors/--errorsonly--------' + '\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
         displayErrorsOverlay(json_out, date, ver=sw_ver)
 
     elif args.minmax:
+        if args.outfile or args.appendfile:
+            try:
+                fh.write('--------Output of --minmax--------' + '\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
         displayFlowInfoOverlay(json_out, ver=sw_ver)
 
     elif args.evaluate_npuload:
+        if args.outfile or args.appendfile:
+            try:
+                fh.write('--------Output of --evaluate-npuload--------' + '\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
         displayNpuloadEvaluation(json_out, ver=sw_ver)
 
     elif args.vsan_thput:
+        if args.outfile or args.appendfile:
+            try:
+                fh.write('--------Output of --vsan-thput--------' + '\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
         displayVsanOverlay(json_out, ver=sw_ver)
 
     elif args.top:

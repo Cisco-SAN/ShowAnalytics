@@ -241,7 +241,7 @@ def get_up_ints_permodule(module):
     * Returns: list of interfaces which are up in that module
     **********************************************************************************
     '''
-    status, out = cmd_exc("sh int br | i fc{} | i 'up|trunking' | cut -d ' ' \
+    status, out = cmd_exc("sh int br | i fc{}/ | i 'up|trunking' | cut -d ' ' \
                            -f 1".format(module))
     if not status:
         print(out)
@@ -2197,7 +2197,7 @@ run prior to configuring analytics')
                           .format(inte)])
         working_interface = None
         end_time = out.split('\n')[-2].split(' ')[0][:-4]
-        itl_count, itn_count, scsi_iops, nvme_iops = 0, 0, 0, 0
+        itl_count, itn_count, scsi_iops, nvme_iops, init_count, tar_count = 0, 0, 0, 0, '0', '0'
         if data_scsi is not None:
             for key, value in data_scsi['values']['1'].items():
                 if key == 'sampling_start_time':
@@ -2266,7 +2266,7 @@ run prior to configuring analytics')
         f_ports = getPureFPorts()
         e_ports = getEPorts()
 
-        inte_type = None
+        inte_type = 'NA'
 
         if inte in f_ports:
             if tar_count is not '0':

@@ -583,6 +583,25 @@ def check_analytics_conf_per_module(mod):
         return True
     return False
 
+def verifyAnalyticsFeature():
+    '''
+    **********************************************************************************
+    * Function: verifyAnalyticsFeature
+    *
+    * Returns: Bool which is True if feature analytics is enabled
+    *          else False
+    **********************************************************************************
+    '''
+    status, out = cmd_exc("show feature | i analytics")
+    if not status:
+        print(out)
+        print('Unable to get feature details')
+        return False
+    if 'disabled' in out:
+        return False
+    return True
+
+
 
 def extract_module_from_port(inte):
     '''
@@ -3693,7 +3712,7 @@ argparse.ArgumentParser.print_help = print_util_help
 parser = argparse.ArgumentParser(prog='ShowAnalytics',
                                  description='ShowAnalytics')
 parser.add_argument('--version', action='version',
-                    help='version', version='%(prog)s 4.0.0')
+                    help='version', version='%(prog)s 5.0.0')
 parser.add_argument('--info', action="store_true",
                     help='--info | --errors mandatory')
 parser.add_argument('--nvme', action="store_true",
@@ -3951,6 +3970,11 @@ sw_ver = getSwVersion()
 if sw_ver is None:
     print('Unable to get Switch software version')
     os._exit(1)
+
+feature = verifyAnalyticsFeature()
+if not feature:
+    print("\nFeature analytics not enabled")
+    sys.exit(1)
 
 if not validateArgs(args, sw_ver):
     os._exit(1)

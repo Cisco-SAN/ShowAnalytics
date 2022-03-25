@@ -17,6 +17,9 @@ import time
 import re
 import signal
 import os
+import math
+from email.utils import formatdate
+import syslog
 
 
 global sig_hup_flag
@@ -43,7 +46,7 @@ error = dict()
 prev_wid = None
 vmid_enabled = False 
 max_vsan_len = 4	
-max_fcid_len = 20
+max_fcid_len = 9
 max_vmid_len = 3	
 max_lunid_len = 19	
 max_nsid_len = 3
@@ -67,12 +70,12 @@ def sig_hup_handler(signum, stack):
         sig_hup_flag = 'ShowAnalytics_' + \
             "_".join(sys.argv[1:]).replace('/', '_') + \
             '_' + str(time.time()).replace('.', '_') + '.txt'
-        cli.cli('logit ShowAnalytics: Remote session is closed.\
+        syslog.syslog(2,'ShowAnalytics: Remote session is closed.\
                 This process will keep running in the background.\
                 Output will be saved in the file {}\
                 in bootflash'.format(sig_hup_flag))
     else:
-        cli.cli('logit ShowAnalytics: Received SIG_HUP. Hence, \
+        syslog.syslog(2,'ShowAnalytics: Received SIG_HUP. Hence, \
                 exiting the utility')
         os._exit(1)
 
@@ -449,6 +452,7 @@ def parse_module(module_str):
                 print("Invalid module {}".format(mod))
                 return []
             module.extend(range(int(st), int(en)+1))
+            module = list(map(str,module))
         else:
             if mod.isdigit():
                 module.append(mod)
@@ -766,7 +770,12 @@ xxxx-xxxx-xxxx-xxxx format")
         except AttributeError:
             print('--key can only take thput or iops or ect')
             return False
-        if args.key not in ['IOPS', 'THPUT', 'ECT']:
+        ver2 = int(''.join([i for i in swver if i.isdigit()])[:3])
+        if int(ver2) >= 922:
+            keyList = ['IOPS', 'THPUT', 'ECT', 'BUSY']
+        else:
+            keyList = ['IOPS', 'THPUT', 'ECT']
+        if args.key not in keyList:
             print(" {0}  is not a valid key".format(args.key))
             return False
     if args.progress:
@@ -785,7 +794,7 @@ xxxx-xxxx-xxxx-xxxx format")
         analytics_mods = get_analytics_module()
         invalid_module = [i for i in module if i not in analytics_mods]
         if invalid_module != []:
-            print('Module {} does not support analytics or is not present\
+            print('Module {} does not support analytics or module/NPU not present\
 '.format(",".join(invalid_module)))
             module = [i for i in module if i not in invalid_module]
         if module == []:
@@ -836,7 +845,7 @@ analytics is not enabled on them".format(args.interface))
                                i.strip().split('/')[0][2:]
                                not in analytics_mods]
             if invalid_intlist != []:
-                print('Interface {} does not support analytics\
+                print('Interface {} does not support analytics or no NPU present in this module\
 '.format(",".join(invalid_intlist)))
             intlist = [i for i in intlist if i not in invalid_intlist]
             if intlist == []:
@@ -902,6 +911,32 @@ def thput_conv(thput_val):
     else:
         return "{0:3.1f} B/s".format(float(thput_val))
 
+def size_conv(size_val):
+    '''
+    **********************************************************************************
+    * Function: size_conv
+    *
+    * Input: Int read from analytics metrics
+    * Returns: String showing size in format of GB or MB or KB
+    *          or B
+    **********************************************************************************
+    '''
+
+    try:
+        out1 = float(size_val)
+    except ValueError:
+        return 'NA'
+
+    if out1 == 0.000:
+        return "0 B"
+    elif out1 >= 1073741824:
+        return "{0:3.1f} GB".format(float(out1/1073741824))
+    elif out1 >= 1048576:
+        return "{0:3.1f} MB".format(float(out1/1048576))
+    elif out1 >= 1024:
+        return "{0:3.1f} KB".format(float(out1/1024))
+    else:
+        return "{0:3.1f} B".format(float(size_val))
 
 def time_conv(time_val):
     '''
@@ -1168,6 +1203,7 @@ def displayDetailOverlay(json_out, ver=None):
     t.align['Min  '] = 'r'
     t.align['Max  '] = 'r'
     t.align['Avg  '] = 'r'
+    ver1 = int(''.join([i for i in ver if i.isdigit()])[:3])
 
     print()
     print('B: Bytes, s: Seconds, Avg: Average, Acc: Accumulative,')
@@ -1245,7 +1281,7 @@ def displayDetailOverlay(json_out, ver=None):
     miin, maax, avg = getMinMaxAvg('read_io_size_min', 'read_io_size_max',
                                    trib, tric).split('/')
     col_values.extend(map(lambda x: "{} B".format(x) if int(float(x)) != 0 else 0,
-                          [miin, maax, avg]))
+                          [miin, maax, math.ceil(float(avg))]))
     t.add_row(col_values)
 
     col_values = []
@@ -1253,7 +1289,7 @@ def displayDetailOverlay(json_out, ver=None):
     miin, maax, avg = getMinMaxAvg('write_io_size_min', 'write_io_size_max',
                                    twib, twic).split('/')
     col_values.extend(map(lambda x: "{} B".format(x) if int(float(x)) != 0 else 0,
-                          [miin, maax, avg]))
+                          [miin, maax, math.ceil(float(avg))]))
     t.add_row(col_values)
 
     # io initiation time
@@ -1295,32 +1331,61 @@ def displayDetailOverlay(json_out, ver=None):
     col_values.extend(map(time_conv, [miin, maax, avg]))
     t.add_row(col_values)
 
-    # io inter gap time
-    col_values = []
-    col_values.append('Read  Inter-IO-Gap (Acc Avg)')
-    min_read_io_gap, max_read_io_gap, avg_read_io_gap = \
-        [tick_to_time(int(float(i))) for i in
-         getMinMaxAvg('read_io_inter_gap_time_min',
-                      'read_io_inter_gap_time_max',
-                      'total_read_io_inter_gap_time',
-                      tric).split('/')]
-    col_values.extend(["{}".format(min_read_io_gap),
-                       "{}".format(max_read_io_gap),
-                       "{}".format(avg_read_io_gap)])
-    t.add_row(col_values)
+    if ver1 < 922:
+        # io inter gap time
+        col_values = []
+        col_values.append('Read  Inter-IO-Gap (Acc Avg)')
+        min_read_io_gap, max_read_io_gap, avg_read_io_gap = \
+            [tick_to_time(int(float(i))) for i in
+             getMinMaxAvg('read_io_inter_gap_time_min',
+                          'read_io_inter_gap_time_max',
+                          'total_read_io_inter_gap_time',
+                          tric).split('/')]
+        col_values.extend(["{}".format(min_read_io_gap),
+                           "{}".format(max_read_io_gap),
+                           "{}".format(avg_read_io_gap)])
+        t.add_row(col_values)
 
-    col_values = []
-    col_values.append('Write Inter-IO-Gap (Acc Avg)')
-    min_write_io_gap, max_write_io_gap, avg_write_io_gap = \
-        [tick_to_time(int(float(i))) for i in
-         getMinMaxAvg('write_io_inter_gap_time_min',
-                      'write_io_inter_gap_time_max',
-                      'total_write_io_inter_gap_time',
-                      twic).split('/')]
-    col_values.extend(["{}".format(min_write_io_gap),
-                       "{}".format(max_write_io_gap),
-                       "{}".format(avg_write_io_gap)])
-    t.add_row(col_values)
+        col_values = []
+        col_values.append('Write Inter-IO-Gap (Acc Avg)')
+        min_write_io_gap, max_write_io_gap, avg_write_io_gap = \
+            [tick_to_time(int(float(i))) for i in
+             getMinMaxAvg('write_io_inter_gap_time_min',
+                          'write_io_inter_gap_time_max',
+                          'total_write_io_inter_gap_time',
+                          twic).split('/')]
+        col_values.extend(["{}".format(min_write_io_gap),
+                           "{}".format(max_write_io_gap),
+                           "{}".format(avg_write_io_gap)])
+        t.add_row(col_values)
+    else:
+        col_values = []
+        col_values.append('Write Host Delay   (Acc Avg)')
+        miin, maax, avg = getMinMaxAvg('write_io_host_delay_time_min',
+                                       'write_io_host_delay_time_max',
+                                       'total_write_io_host_delay_time',
+                                       'total_write_io_sequences_count').split('/')
+        col_values.extend(map(time_conv, [miin, maax, avg]))
+        t.add_row(col_values)
+
+        col_values = []
+        col_values.append('Write Array Delay  (Acc Avg)')
+        miin, maax, avg = getMinMaxAvg('NA',
+                                       'write_io_array_delay_time_max',
+                                       'total_write_io_array_delay_time',
+                                       'total_write_io_sequences_count').split('/')
+        col_values.extend(map(time_conv, ['NA', maax, avg]))
+        t.add_row(col_values)
+
+        col_values = []
+        col_values.append('Write IO Seq count (Acc Avg)')
+        miin, maax, avg = getMinMaxAvg('multisequence_exchange_write_io_sequences_max',
+                                       'multisequence_exchange_write_io_sequences_min',
+                                       'total_write_io_sequences_count',
+                                       twic).split('/')
+        col_values.extend([miin, maax, math.ceil(float(avg))])
+        t.add_row(col_values)
+
 
     print(t)
     if args.outfile or args.appendfile:
@@ -1348,12 +1413,14 @@ def displayFlowInfoOverlay(json_out, ver=None):
     **********************************************************************************
     '''
     
-    global prev_wid
+    global prev_wid,max_fcid_len
     if args.alias:
         fcid2pwwn = getfcid2pwwn()
         pwwn2alias = getDalias()
+        max_fcid_len = 20
 
     vmid_enabled = getVmidFeature()
+    ver1 = int(''.join([i for i in ver if i.isdigit()])[:3])
 
     lun_str = 'Namespace' if args.nvme else 'LUN'
     lun_str_len = max_nsid_len if args.nvme else max_lunid_len
@@ -1361,25 +1428,27 @@ def displayFlowInfoOverlay(json_out, ver=None):
         if(args.initiator_it or args.target_it):	
             col_names = ["{0:^{w1}} | {1:^{w2}} | {2:^{w3}} | {3:^{w4}} ".format('VSAN','Initiator',\
                          'VMID','Target',w1=max_vsan_len,w2=max_fcid_len,w3=max_vmid_len,w4=max_fcid_len),\
-                         'Avg IOPS','Avg Throughput', 'Avg ECT', 'Avg Data Access Latency','Avg IO Size']
+                         'Avg IOPS','Avg Throughput', 'Avg ECT', 'Avg DAL','Avg IO Size']
         else:	
             col_names = ["{0:^{w1}} | {1:^{w2}} | {2:^{w3}} | {3:^{w4}} | {4:^{w5}} ".\
                         format('VSAN','Initiator','VMID','Target',lun_str,w1=max_vsan_len,w2=max_fcid_len,\
                         w3=max_vmid_len,w4=max_fcid_len,w5=lun_str_len),'Avg IOPS','Avg Throughput', 'Avg ECT',\
-                        'Avg Data Access Latency','Avg IO Size']
+                        'Avg DAL','Avg IO Size']
     else:
         if(args.initiator_it or args.target_it):
             col_names = ["{0:^{w1}} | {1:^{w2}} | {2:^{w3}} ".format('VSAN','Initiator',\
                          'Target',w1=max_vsan_len,w2=max_fcid_len,w3=max_fcid_len),\
-                         'Avg IOPS','Avg Throughput', 'Avg ECT', 'Avg Data Access Latency','Avg IO Size']
+                         'Avg IOPS','Avg Throughput', 'Avg ECT', 'Avg DAL','Avg IO Size']
         else:
             col_names = ["{0:^{w1}} | {1:^{w2}} | {2:^{w3}} | {3:^{w4}} ".\
                         format('VSAN','Initiator','Target',lun_str,w1=max_vsan_len,w2=max_fcid_len,\
                         w3=max_fcid_len,w4=lun_str_len),'Avg IOPS','Avg Throughput', 'Avg ECT',\
-                        'Avg Data Access Latency','Avg IO Size']
+                        'Avg DAL','Avg IO Size']
+    if ver1 >= 922:
+        col_names.extend([' Avg Host Delay ',' Avg Array Delay '])
     metrics = []
     port, vsan, initiator, lun, target, vmid = '0/0', '', '', '', '', ''
-    totalread, totalwrite, readCount, writeCount, readIoIntTime, writeIoIntTime, readIoB, writeIoB  = 0, 0, 0, 0, 0, 0, 0, 0
+    totalread, totalwrite, readCount, writeCount, readIoIntTime, writeIoIntTime, readIoB, writeIoB, writeArrayDelay, writeHostDelay, totalWriteIoSeq  = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     sizeJson = len(json_out['values'])
     counter = 1
     max_iops = 0
@@ -1405,6 +1474,8 @@ def displayFlowInfoOverlay(json_out, ver=None):
                 col_names = ["{0:^{w1}} | {1:^{w2}} | {2:^{w3}} ".format('VSAN','Initiator',\
                             'Target',w1=max_vsan_len,w2=max_fcid_len,w3=max_fcid_len,\
                             ), 'Peak IOPS*','Peak Throughput*', 'Read ECT*', 'Write ECT*']
+        if ver1 >= 922:
+            col_names.extend([' Host Delay* ',' Array Delay* ',' Write IO sequence* '])
     else:
         pre_a = {}
         while counter <= sizeJson:
@@ -1464,19 +1535,30 @@ def displayFlowInfoOverlay(json_out, ver=None):
                 if (str(key) == 'total_write_io_bytes' and value != 0):
                     writeIoB = int(value)
                     continue
+                if str(key) == 'total_write_io_array_delay_time' and value != 0 and ver1 >= 922:
+                    writeArrayDelay = int(value)
+                    continue
+                if str(key) == 'total_write_io_host_delay_time' and value != 0 and ver1 >= 922:
+                    writeHostDelay = int(value)
+                    continue
+                if str(key) == 'total_write_io_sequences_count' and value != 0 and ver1 >= 922:
+                    totalWriteIoSeq = int(value)
+                    continue
             counter = counter + 1
             if vmid_enabled:
                 pre_a[str(port) + '::' + str(vsan) + '::' + str(initiator) + '::' + str(vmid) + '::' +\
                   str(target) + '::' + str(lun)] = str(totalread) +\
                   '::' + str(totalwrite) + '::' + str(readCount) +\
                   '::' + str(writeCount) + '::' + str(readIoIntTime) + '::' + str(writeIoIntTime) +\
-                  '::' + str(readIoB) + '::' + str(writeIoB)
+                  '::' + str(readIoB) + '::' + str(writeIoB) + '::' + str(writeArrayDelay) +\
+                  '::' + str(writeHostDelay) + '::' + str(totalWriteIoSeq)
             else:
                 pre_a[str(port) + '::' + str(vsan) + '::' + str(initiator) + '::'	
                   + str(target) + '::' + str(lun)] = str(totalread) +\
                   '::' + str(totalwrite) + '::' + str(readCount) +\
                   '::' + str(writeCount) + '::' + str(readIoIntTime) + '::' + str(writeIoIntTime) +\
-                  '::' + str(readIoB) + '::' + str(writeIoB)
+                  '::' + str(readIoB) + '::' + str(writeIoB) + '::' + str(writeArrayDelay) +\
+                  '::' + str(writeHostDelay) + '::' + str(totalWriteIoSeq)
 
         if len(pre_a) < 200:
             # adding sleep for more accurate results CSCvp66699
@@ -1488,11 +1570,13 @@ def displayFlowInfoOverlay(json_out, ver=None):
     while counter <= sizeJson:
         vmid = ''
         iopsR, thputR, ectR, dalR, IoSizeR = 0, 0, 0, 0, 0
-        iopsW, thputW, ectW, dalW, IoSizeW = 0, 0, 0, 0, 0
+        iopsW, thputW, ectW, dalW, IoSizeW , hostDelay, arrayDelay = 0, 0, 0, 0, 0, 0, 0
         if args.minmax:
             (peak_read_iops, peak_write_iops, peak_read_thput,
              peak_write_thput, read_ect_min, read_ect_max,
-             write_ect_min, write_ect_max) = (0, 0, 0, 0, 0, 0, 0, 0)
+             write_ect_min, write_ect_max, write_host_delay_min, 
+             write_host_delay_max, write_array_delay_max,
+             write_io_seq_count_max,write_io_seq_count_min) = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
         for key, value in json_out['values'][str(counter)].items():
             if str(key) == 'port':
                 port = value
@@ -1585,6 +1669,30 @@ def displayFlowInfoOverlay(json_out, ver=None):
             if (str(key) == 'total_write_io_bytes' and value != 0):
                 writeIoB = int(value)
                 continue
+            if str(key) == 'total_write_io_array_delay_time' and value != 0 and ver1 >= 922:
+                writeArrayDelay = int(value)
+                continue
+            if str(key) == 'total_write_io_host_delay_time' and value != 0 and ver1 >= 922:
+                writeHostDelay = int(value)
+                continue
+            if str(key) == 'write_io_host_delay_time_max' and value != 0 and ver1 >= 922:
+                write_host_delay_max = int(value)
+                continue
+            if str(key) == 'write_io_host_delay_time_min' and value != 0 and ver1 >= 922:
+                write_host_delay_min = int(value)
+                continue
+            if str(key) == 'write_io_array_delay_time_max' and value != 0 and ver1 >= 922:
+                write_array_delay_max = int(value)
+                continue
+            if str(key) == 'total_write_io_sequences_count' and value != 0 and ver1 >= 922:
+                totalWriteIoSeq = int(value)
+                continue
+            if str(key) == 'multisequence_exchange_write_io_sequences_max' and value != 0 and ver1 >= 922:
+                write_io_seq_count_max = int(value)
+                continue
+            if str(key) == 'multisequence_exchange_write_io_sequences_min' and value != 0 and ver1 >= 922:
+                write_io_seq_count_min = int(value)
+                continue
 
         if args.alias:
             if (str(initiator), int(vsan)) in fcid2pwwn:
@@ -1615,6 +1723,8 @@ def displayFlowInfoOverlay(json_out, ver=None):
                     + '::' + str(peak_write_thput) + '::' + str(read_ect_min) \
                     + '::' + str(read_ect_max) + '::' + str(write_ect_min) \
                     + '::' + str(write_ect_max)
+            if ver1 >= 922:
+                a = a + '::'+ str(write_host_delay_min) + '::' + str(write_host_delay_max) + '::' + str(write_array_delay_max) + '::' + str(write_io_seq_count_min) + '::' + str(write_io_seq_count_max)
 
             max_iops = max([int(i) for i in (peak_write_iops, peak_read_thput, max_iops)])
         else:
@@ -1626,10 +1736,12 @@ def displayFlowInfoOverlay(json_out, ver=None):
                     + '::' + str(target) + '::' + str(lun)
             try:
                 prev_totalread, prev_totalwrite, prev_readcount,\
-                    prev_writecount, prev_readIoIntTime, prev_writeIoIntTime, pre_readIoB, pre_writeIoB = pre_a[itl_id].split('::')
+                    prev_writecount, prev_readIoIntTime, prev_writeIoIntTime, pre_readIoB, pre_writeIoB,\
+                    pre_writeArrayDelay, pre_writeHostDelay, pre_totalWriteIoSeq = pre_a[itl_id].split('::')
             except Exception:
                 prev_totalread, prev_totalwrite, prev_readcount,\
-                    prev_writecount, prev_readIoIntTime, prev_writeIoIntTime, pre_readIoB, pre_writeIoB  = 0, 0, 0, 0, 0, 0, 0, 0
+                    prev_writecount, prev_readIoIntTime, prev_writeIoIntTime, pre_readIoB, pre_writeIoB,\
+                    pre_writeArrayDelay, pre_writeHostDelay, pre_totalWriteIoSeq = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
             a = itl_id + '::' + str(iopsR) + '::' + str(iopsW) + '::' \
                 + str(thputR) + '::' + str(thputW)
             diff_readCount = int(readCount)-int(prev_readcount)
@@ -1638,6 +1750,12 @@ def displayFlowInfoOverlay(json_out, ver=None):
             diff_writeIoIntTime = int(writeIoIntTime) - int(prev_writeIoIntTime)
             diff_readIoB = int(readIoB) - int(pre_readIoB)
             diff_writeIoB = int(writeIoB) - int(pre_writeIoB)
+            diff_writeHostDelay = int(writeHostDelay) - int(pre_writeHostDelay)
+            diff_writeArrayDelay = int(writeArrayDelay) - int(pre_writeArrayDelay)
+            diff_totalWriteIoSeq = int(totalWriteIoSeq) - int(pre_totalWriteIoSeq)
+            if diff_totalWriteIoSeq != 0:
+                hostDelay = diff_writeHostDelay // diff_totalWriteIoSeq
+                arrayDelay = diff_writeArrayDelay // diff_totalWriteIoSeq
             if diff_readCount != 0:
                 ectR = abs(int(totalread) -
                            int(prev_totalread)) // diff_readCount
@@ -1654,6 +1772,8 @@ def displayFlowInfoOverlay(json_out, ver=None):
                 IoSizeW =  diff_writeIoB // diff_writeCount
 
             a = a + '::' + str(ectR) + '::' + str(ectW) + '::' + str(dalR) + '::' + str(dalW) + '::' + str(IoSizeR) + '::' + str(IoSizeW)
+            if ver1 >= 922:
+                a = a + '::'+ str(hostDelay) + '::' + str(arrayDelay)
             max_iops = max([int(i) for i in (max_iops, iopsR, iopsW)])
         counter = counter + 1
 
@@ -1674,8 +1794,12 @@ def displayFlowInfoOverlay(json_out, ver=None):
                        key=lambda x: tuple([int(i) for i in
                                             x[2:].split('/')])):
         t = PrettyTable(col_names)
-        col_names_empty = ['', '', '', '', '', ''] if not args.minmax else ['', '',
+        if ver1 < 922:
+            col_names_empty = ['', '', '', '', '', ''] if not args.minmax else ['', '',
                                                                     '', '', '']
+        else:
+            col_names_empty = ['', '', '', '', '', '', '', ''] if not args.minmax else ['', '',
+                                                                    '', '', '', '', '', '']
 
         max_iops_len = len(str(max_iops))
 
@@ -1684,6 +1808,8 @@ def displayFlowInfoOverlay(json_out, ver=None):
                                                          'Write',
                                                          w=max_iops_len),
                           '   Read   |   Write   ', '  Read   |   Write  ', '  Read   |   Write  ', '  Read   |   Write  ']
+        if ver1 >= 922:
+            col_names_desc.extend(['Write','Write'])
         if args.minmax:
             col_names_desc = ['',
                               '{0:^{w}} | {1:^{w}} '.format('Read',
@@ -1691,6 +1817,8 @@ def displayFlowInfoOverlay(json_out, ver=None):
                                                             w=max_iops_len),
                               '   Read   |   Write   ',
                               '   Min   |    Max   ', '  Min    |    Max   ']
+            if ver1 >= 922:
+                col_names_desc.extend(['  Min    |    Max   ', '  Min    |    Max   ','  Min    |    Max   '])
         t.add_row(col_names_desc)
         t.add_row(col_names_empty)
 
@@ -1729,9 +1857,24 @@ def displayFlowInfoOverlay(json_out, ver=None):
                                   .format(time_conv(float(parts[12])),
                                           time_conv(float(parts[13]))))
                 if not args.minmax:
+                    col_values.append(" {0:>8} | {1:^9} "
+                                      .format(size_conv(float(parts[14])),
+                                              size_conv(float(parts[15]))))
+                    if ver1 >= 922:
+                        col_values.append(" {0:>7} "
+                                          .format(time_conv(float(parts[16]))))
+                        col_values.append(" {0:>7} "
+                                          .format(time_conv(float(parts[17]))))
+                elif ver1 >= 922:
                     col_values.append(" {0:>7} | {1:>8} "
-                                      .format(thput_conv(float(parts[14])),
-                                              thput_conv(float(parts[15]))))
+                                      .format(time_conv(float(parts[14])),
+                                              time_conv(float(parts[15]))))
+                    col_values.append(" {0:^7} | {1:>8} "
+                                      .format('NA',
+                                              time_conv(float(parts[16]))))
+                    col_values.append(" {0:^7} | {1:^8} "
+                                      .format(parts[17],
+                                              parts[18]))
 
             else:
                 if not (args.initiator_it or args.target_it):
@@ -1754,12 +1897,34 @@ def displayFlowInfoOverlay(json_out, ver=None):
                                   .format(time_conv(float(parts[11])),
                                           time_conv(float(parts[12]))))
                 if not args.minmax:
+                    col_values.append(" {0:>8} | {1:^9} "
+                                      .format(size_conv(float(parts[13])),
+                                              size_conv(float(parts[14]))))
+                    if ver1 >= 922:
+                        col_values.append(" {0:>7} "
+                                          .format(time_conv(float(parts[15]))))
+                        col_values.append(" {0:>7} "
+                                          .format(time_conv(float(parts[16]))))
+                elif ver1 >= 922:
                     col_values.append(" {0:>7} | {1:>8} "
-                                      .format(thput_conv(float(parts[13])),
-                                              thput_conv(float(parts[14]))))
+                                      .format(time_conv(float(parts[13])),
+                                              time_conv(float(parts[14]))))
+                    col_values.append(" {0:^7} | {1:>8} "
+                                      .format('NA',
+                                              time_conv(float(parts[15]))))
+                    col_values.append(" {0:^7} | {1:^8} "
+                                      .format(parts[16],
+                                              parts[17]))
 
             t.add_row(col_values)
+        t.padding_width = 0
         print(t)
+        if args.initiator_it or args.target_it:
+            print("Total number of ITs: {}".format(len(port_metrics[port])))
+        elif args.nvme:
+            print("Total number of ITNs: {}".format(len(port_metrics[port])))
+        else:
+            print("Total number of ITLs: {}".format(len(port_metrics[port])))
         if args.outfile or args.appendfile:
             data = t.get_string()
             try:
@@ -1808,10 +1973,12 @@ def displayErrorsOverlay(json_out, date, ver=None):
     **********************************************************************************
     '''
 
+    global max_fcid_len
     vmid_enabled = getVmidFeature()
     if args.alias:
         fcid2pwwn = getfcid2pwwn()
         pwwn2alias = getDalias()
+        max_fcid_len = 20
 
     displaydateFlag = False
 
@@ -2077,7 +2244,7 @@ run prior to configuring analytics')
                         sys.exit(1)
 
     if interface_list == []:
-        print('No Up port found on device capable for analytics')
+        print('No Up port found or no NPU present on device capable for analytics')
         sys.exit(1)
 
     int_count = len(interface_list)
@@ -2124,9 +2291,8 @@ run prior to configuring analytics')
 '.format(inte, int_iterator, int_count))
             pline = 1
         else:
-            cli.cli('logit ShowAnalytics: Evaluating interface \
-                {0} ({1} out of {2} interfaces)'.format(inte, int_iterator,
-                                                        int_count))
+            syslog.syslog(2,'ShowAnalytics: Evaluating interface {0} ({1} out of {2} interfaces)'\
+                    .format(inte, int_iterator, int_count))
         if not interface_list_flag:
             traffic_flag, err_out = is_traffic_running(inte)
             if not traffic_flag:
@@ -2313,7 +2479,7 @@ run prior to configuring analytics')
         try:
             file_handler = open(file_name, 'w+')
         except Exception as e:
-            cli.cli('logit ShowAnalytics: Unable to save output in \
+            syslog.syslog(2,'ShowAnalytics: Unable to save output in \
                     bootflash with name {0} as {1}'.format(sig_hup_flag, e))
             sys.exit(1)
     else:
@@ -2438,7 +2604,7 @@ evaluated ports'+'\n')
                 except OSError as err:
                     print("Not able to write to a file, No space left on device")
                     sys.exit(0)
-    cli.cli('logit ShowAnalytics: Task Completed')
+    syslog.syslog(2,'ShowAnalytics: Task Completed')
 
 
 def displayVsanOverlay(json_out, ver=None):
@@ -2617,6 +2783,7 @@ def displayTop(args, json_out, return_vector, ver=None):
     global top_count
     global error
     global error_flag
+    global max_fcid_len
 
     vmid_enabled = getVmidFeature()
 
@@ -2627,6 +2794,7 @@ def displayTop(args, json_out, return_vector, ver=None):
     if args.alias:
         fcid2pwwn = getfcid2pwwn()
         pwwn2alias = getDalias()
+        max_fcid_len = 20
 
     line_count = 0
     str1 = None
@@ -2659,7 +2827,7 @@ def displayTop(args, json_out, return_vector, ver=None):
             else:
                 clear_previous_lines(1)
             print()
-            print(datetime.datetime.now())
+            print("Data collected at : {}".format(formatdate()))
             if str1 is not None:
                 print()
                 print(str1)
@@ -2689,6 +2857,7 @@ def displayTop(args, json_out, return_vector, ver=None):
 
     metrics = []
     pdata = {}
+    dontPrintFlag = False
     while json_out:
         sizeJson = len(json_out['values'])
         counter = 1
@@ -2701,11 +2870,11 @@ def displayTop(args, json_out, return_vector, ver=None):
                                                       'target_id', lun_id_str]]
             vsan = str(iter_itl.get(u'vsan', 0))
             read, write, rb, wb, totalread, totalwrite, readCount, \
-                writeCount = [int(iter_itl.get(unicode(i), 0)) for i in
+                writeCount, tbp = [int(iter_itl.get(unicode(i), 0)) for i in
                               ['read_io_rate', 'write_io_rate',
                                'read_io_bandwidth', 'write_io_bandwidth',
                                'total_read_io_time', 'total_write_io_time',
-                               tric, twic]]
+                               tric, twic,'total_busy_period']]
 
             counter += 1
             if args.alias:
@@ -2733,6 +2902,19 @@ def displayTop(args, json_out, return_vector, ver=None):
             elif args.key == 'THPUT':
                 a = itl_id + '::' + str(rb) + '::' + str(wb) \
                     + '::' + str(rb+wb)
+            elif args.key == 'BUSY':
+                pdata[itl_id] = str(tbp)
+                if ((return_vector[2] is not None) and
+                        (itl_id in return_vector[2].keys())):
+                    bp = int(return_vector[2][itl_id])
+                    #print("itl_id, tbp, bp ======> {}, {}  :   {}".format(itl_id,tbp,bp))
+                    diffBp = abs(tbp - bp)
+                else:
+                    if return_vector[2] is None:
+                        dontPrintFlag = True
+                    diffBp = 0
+                a = itl_id + '::' + ' ' + '::' + ' ' \
+                    + '::'  + str(diffBp) 
             elif args.key == 'ECT':
                 pdata[itl_id] = str(readCount) + '::' + str(totalread) \
                     + '::' + str(writeCount) + '::' + str(totalwrite)
@@ -2759,6 +2941,9 @@ def displayTop(args, json_out, return_vector, ver=None):
             json_out = json_out1
             json_out1 = None
 
+    if dontPrintFlag:
+        clear_previous_lines(1)
+        return [None, 2, pdata]
     # clear_previous_lines(1)
     if args.progress:
         sys.stdout.write('###')
@@ -2809,6 +2994,15 @@ def displayTop(args, json_out, return_vector, ver=None):
            col_names = ["PORT", "{0:^{w1}} | {1:^{w2}} | {2:^{w3}} | {3:^{w4}} ".
                        format('VSAN','Initiator','Target',lun_str,w1=max_vsan_len,w2=max_fcid_len,\
                        w3=max_fcid_len,w4=lun_str_len),"Avg Throughput"] 
+    elif args.key == 'BUSY':
+        if vmid_enabled:
+           col_names = ["PORT", "{0:^{w1}} | {1:^{w2}} | {2:^{w3}} | {3:^{w4}} | {4:^{w5}} ".
+                       format('VSAN','Initiator','VMID','Target',lun_str,w1=max_vsan_len,w2=max_fcid_len,\
+                       w3=max_vmid_len,w4=max_fcid_len,w5=lun_str_len),"Total Busy Period"]  
+        else:
+           col_names = ["PORT", "{0:^{w1}} | {1:^{w2}} | {2:^{w3}} | {3:^{w4}} ".
+                       format('VSAN','Initiator','Target',lun_str,w1=max_vsan_len,w2=max_fcid_len,\
+                       w3=max_fcid_len,w4=lun_str_len),"Total Busy Period"] 
     elif args.key == 'ECT':
         if vmid_enabled:
             col_names = ["PORT", "{0:^{w1}} | {1:^{w2}} | {2:^{w3}} | {3:^{w4}} | {4:^{w5}} ".
@@ -2827,7 +3021,11 @@ def displayTop(args, json_out, return_vector, ver=None):
     else:
         row_val = [" ", " ", "Read  |  Write"]
 
-    t.add_row(row_val)
+    if args.key != 'BUSY':
+        line_count = 4
+        t.add_row(row_val)
+    else:
+        line_count = 3
 
     if args.nvme:
         t.align[col_names[1]] = 'l'
@@ -2847,6 +3045,11 @@ def displayTop(args, json_out, return_vector, ver=None):
                               w4=max_fcid_len,w5=lun_str_len), 
                               "{0:>8} |{1:^10}".format(time_conv(r),
                                                        time_conv(w))]
+            elif args.key == 'BUSY':
+                col_values = [p, "{0:>{w1}} | {1:^{w2}} | {2:>{w3}} | {3:^{w4}} | {4:>{w5}} "\
+                              .format(v, i, vmid, ta, l, w1=max_vsan_len,w2=max_fcid_len,w3=max_vmid_len,\
+                              w4=max_fcid_len,w5=lun_str_len),
+                              "{0:^8}".format(time_conv(to))]
             else:
                 col_values = [p, "{0:>{w1}} | {1:^{w2}} | {2:>{w3}} | {3:^{w4}} | {4:>{w5}} "\
                               .format(v, i, vmid, ta, l, w1=max_vsan_len,w2=max_fcid_len,w3=max_vmid_len,\
@@ -2866,6 +3069,11 @@ def displayTop(args, json_out, return_vector, ver=None):
                               w3=max_fcid_len,w4=lun_str_len),
                               "{0:>8} |{1:^10}".format(time_conv(r),
                                                        time_conv(w))]
+            elif args.key == 'BUSY':
+                col_values = [p, "{0:>{w1}} | {1:^{w2}} | {2:^{w3}} | {3:>{w4}} "\
+                              .format(v, i, ta, l, w1=max_vsan_len,w2=max_fcid_len,\
+                              w3=max_fcid_len,w4=lun_str_len),
+                              "{0:^8}".format(time_conv(to))]
             else:
                 col_values = [p, "{0:>{w1}} | {1:^{w2}} | {2:^{w3}} | {3:>{w4}} "\
                               .format(v, i, ta, l, w1=max_vsan_len,w2=max_fcid_len,\
@@ -2891,7 +3099,7 @@ def displayTop(args, json_out, return_vector, ver=None):
         print()
         print(str2)
     print()
-    print(datetime.datetime.now())
+    print("Data collected at : {}".format(formatdate()))
     print()
     print(t)
     if args.outfile or args.appendfile:
@@ -2914,7 +3122,7 @@ def displayTop(args, json_out, return_vector, ver=None):
                 print("Not able to write to a file, No space left on device")
                 sys.exit(0)
             try:
-                fh.write(str(datetime.datetime.now())+'\n')
+                fh.write("Data collected at : {}".format(formatdate())+'\n')
                 fh.write(data+'\n')
             except OSError as err:
                 print("Not able to write to a file, No space left on device")
@@ -2926,7 +3134,7 @@ def displayTop(args, json_out, return_vector, ver=None):
             sys.exit(0)
 
     print()
-    if args.key == 'ECT':
+    if args.key == 'ECT' or args.key == 'BUSY':
         return [line_count, return_vector[1], pdata]
     else:
         return [line_count, return_vector[1], '']
@@ -2952,12 +3160,14 @@ def displayOutstandingIo(json_out, return_vector, ver=None):
 
     global error
     global error_flag
+    global max_fcid_len
 
     vmid_enabled = getVmidFeature()
 
     if args.alias:
         fcid2pwwn = getfcid2pwwn()
         pwwn2alias = getDalias()
+        max_fcid_len = 20
 
     f_ports = getPureFPorts()
     port = args.interface
@@ -3007,7 +3217,7 @@ def displayOutstandingIo(json_out, return_vector, ver=None):
             else:
                 clear_previous_lines(1)
             print()
-            print(datetime.datetime.now())
+            print("Data collected at : {}".format(formatdate()))
             if str1 is not None:
                 print()
                 print(str1)
@@ -3084,7 +3294,10 @@ interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
         except Exception as e:
             print("Unable to check flogi database. This might be NPV device")
             os._exit(1)
-        i, ta = [fcid_Normalizer(z) for z in port_metrics[0].split('::')[2:4]]
+        if vmid_enabled:
+            i, vid, ta = [fcid_Normalizer(z) for z in port_metrics[0].split('::')[2:5]]
+        else:
+            i, ta = [fcid_Normalizer(z) for z in port_metrics[0].split('::')[2:4]]
 
         fcns_type = None
         try:
@@ -3115,7 +3328,7 @@ interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
                 os.chdir('/bootflash')
                 fh = open(outfile, 'a+')
                 try:
-                    fh.write(str(datetime.datetime.now()) + '\n')
+                    fh.write("Data collected at : {}".format(formatdate())+'\n')
                     fh.write(pdata + '\n')
                 except OSError as err:
                     print("Not able to write to a file, No space left on device")
@@ -3155,7 +3368,7 @@ interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
         clear_previous_lines(return_vector[0])
     if return_vector[0] is not None:
         clear_previous_lines(2)
-        print(datetime.datetime.now())
+        print("Data collected at : {}".format(formatdate()))
     if return_vector[2]:
         pdata = return_vector[2]
         print(pdata)
@@ -3181,7 +3394,7 @@ interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
                 print("Not able to write to a file, No space left on device")
                 sys.exit(0)
             try:
-                fh.write(str(datetime.datetime.now()) + '\n')
+                fh.write("Data collected at : {}".format(formatdate())+'\n')
                 fh.write(data + '\n')
             except OSError as err:
                 print("Not able to write to a file, No space left on device")
@@ -3261,6 +3474,16 @@ def getData(args, misc=None, ver=None):
                                   'total_write_io_bytes',
                                   'total_read_io_count',
                                   'total_write_io_count')
+    ver1 = int(''.join([i for i in sw_ver if i.isdigit()])[:3])
+    if ver1 >= 922:
+        delayMetric_str = "total_write_io_host_delay_time, total_write_io_array_delay_time, total_write_io_sequences_count,"
+        delayMetricMinMax_str = "total_write_io_host_delay_time, total_write_io_array_delay_time, write_io_host_delay_time_max, write_io_host_delay_time_min, write_io_array_delay_time_max, multisequence_exchange_write_io_sequences_max, multisequence_exchange_write_io_sequences_min, total_write_io_sequences_count,"
+        ioInterGap_str = ""
+    else:
+        delayMetric_str = ""
+        delayMetricMinMax_str = ""
+        ioInterGap_str = "read_io_inter_gap_time_min, read_io_inter_gap_time_max, \
+                      write_io_inter_gap_time_min, write_io_inter_gap_time_max,"
 
     table_name = ''
     global interface_list
@@ -3322,15 +3545,14 @@ def getData(args, misc=None, ver=None):
                 read_io_completion_time_min, read_io_completion_time_max, \
                 total_read_io_time, write_io_completion_time_min, \
                 write_io_completion_time_max, total_write_io_time, \
-                read_io_inter_gap_time_min, read_io_inter_gap_time_max, \
-                total_read_io_inter_gap_time, write_io_inter_gap_time_min, \
-                write_io_inter_gap_time_max, total_write_io_inter_gap_time, \
+                total_read_io_inter_gap_time, total_write_io_inter_gap_time, {ioInterGap}\
                 read_io_aborts, write_io_aborts, read_io_failures, \
-                write_io_failures, peak_read_io_rate, peak_write_io_rate, \
+                write_io_failures, peak_read_io_rate, peak_write_io_rate,{delayMetric} \
                 peak_read_io_bandwidth, peak_write_io_bandwidth from \
                     {proto}.{fc_table}".format(trib, twib, tric, twic,
                                                lun=lun_field, proto=protocol_str,
-                                           fc_table=table_name, vmid=vmid_str, app_id = app_id_str)
+                                           fc_table=table_name, vmid=vmid_str, app_id = app_id_str,
+                                           delayMetric = delayMetricMinMax_str, ioInterGap = ioInterGap_str)
         else:
             if args.minmax:
                 query = "select port,vsan, {app_id} initiator_id, {vmid}\
@@ -3339,11 +3561,11 @@ def getData(args, misc=None, ver=None):
                     read_io_completion_time_min,read_io_completion_time_max,\
                     write_io_completion_time_min,write_io_completion_time_max,\
                     read_io_rate,write_io_rate,read_io_bandwidth,\
-                    write_io_bandwidth,total_read_io_time,\
+                    write_io_bandwidth,total_read_io_time, {delayMetric}\
                     total_write_io_time,{2},{3},read_io_aborts,write_io_aborts,\
                     read_io_failures,write_io_failures from {proto}.{fc_table}\
                     ".format(trib, twib, tric, twic, lun=lun_field,
-                             proto=protocol_str, fc_table=table_name, vmid=vmid_str, app_id = app_id_str)
+                             proto=protocol_str, fc_table=table_name, vmid=vmid_str, app_id = app_id_str, delayMetric = delayMetricMinMax_str)
             else:
                 if misc is None:
                     # consider case of args.error also
@@ -3351,10 +3573,11 @@ def getData(args, misc=None, ver=None):
                         total_read_io_time,total_write_io_time, {vmid} {2},{3},\
                         read_io_aborts,write_io_aborts,read_io_failures,\
                         write_io_failures,total_read_io_initiation_time,\
-                        total_write_io_initiation_time,total_read_io_bytes,\
+                        total_write_io_initiation_time,total_read_io_bytes,{delayMetric} \
                         total_write_io_bytes from {proto}.{fc_table}\
                         ".format(trib, twib, tric, twic, lun=lun_field,
-                                 proto=protocol_str, fc_table=table_name, vmid=vmid_str, app_id = app_id_str )
+                                 proto=protocol_str, fc_table=table_name, vmid=vmid_str, app_id = app_id_str,
+                                 delayMetric = delayMetric_str)
                 else:
                     query = "select port,vsan, {app_id} initiator_id, {vmid}\
                         target_id,{lun}read_io_rate,write_io_rate,\
@@ -3362,10 +3585,11 @@ def getData(args, misc=None, ver=None):
                         total_read_io_time,total_write_io_time,{2},{3},\
                         read_io_aborts,write_io_aborts,read_io_failures,\
                         write_io_failures,total_read_io_initiation_time,\
-                        total_read_io_bytes,total_write_io_bytes,\
+                        total_read_io_bytes,total_write_io_bytes,{delayMetric}\
                         total_write_io_initiation_time from {proto}.{fc_table}\
                         ".format(trib, twib, tric, twic, lun=lun_field,
-                                 proto=protocol_str, fc_table=table_name, vmid=vmid_str, app_id = app_id_str)
+                                 proto=protocol_str, fc_table=table_name, vmid=vmid_str, app_id = app_id_str,
+                                 delayMetric = delayMetric_str)
 
     # query = "select all from fc-scsi." + table_name ; #CSCvn26029
     if args.vsan_thput:
@@ -3388,6 +3612,8 @@ def getData(args, misc=None, ver=None):
             wkey = ['total_time_metric_based_read_io_count',
                     'total_time_metric_based_write_io_count',
                     'total_read_io_time', 'total_write_io_time']
+        if args.key == 'BUSY':
+            wkey = ['total_busy_period']
         if not misc:
             query = "select port, vsan, {app_id} initiator_id, {vmid} target_id, {0}\
                 ".format(lun_field[:-1], vmid=vmid_str, app_id = app_id_str)
@@ -3649,7 +3875,7 @@ limit] [--refresh] [--alias] [--nvme] [--namespace <namespace_id>]\
  --top                    Provides top IT(L/N)s based on key. Default key is IOPS
                           Args : [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] \
-[--limit] [--key <IOPS|THPUT|ECT>] [--progress] [--alias] [--nvme] [--\
+[--limit] [--key <IOPS|THPUT|ECT|BUSY>] [--progress] [--alias] [--nvme] [--\
 namespace <namespace_id>] [--outfile <out_file>] [--appendfile <out_file>]
 
  --version                Provides version details of this utility
@@ -3661,34 +3887,34 @@ namespace <namespace_id>] [--outfile <out_file>] [--appendfile <out_file>]
 ARGUMENTS:
 ---------
 
-      --alias                                 Prints device-alias for \
+      --alias                                      Prints device-alias for \
 initiator and target in place of FCID.
-      --appendfile        <output_file>       Append output of the command \
+      --appendfile        <output_file>            Append output of the command \
 to a file on bootflash
-      --initiator         <initiator_fcid>    Specifies initiator FCID in \
+      --initiator         <initiator_fcid>         Specifies initiator FCID in \
 the format 0xDDAAPP
-      --interface         <interface>         Specifies Interface in \
+      --interface         <interface>              Specifies Interface in \
 the format module/port
-      --key               <iops|thput|ect>    Defines the key value for \
+      --key               <iops|thput|ect|busy>    Defines the key value for \
 the --top option
-      --limit             <itl_limit>         Maximum number of ITL records \
+      --limit             <itl_limit>              Maximum number of ITL records \
 to display. Valid range 1-{flow_limit}. Default = {flow_limit}
-      --lun               <lun_id>            Specifies LUN ID in \
+      --lun               <lun_id>                 Specifies LUN ID in \
 the format XXXX-XXXX-XXXX-XXXX
-      --module            <mod1,mod2>         Specifies module list \
+      --module            <mod1,mod2>              Specifies module list \
 for --evaluate-npuload option example 1,2
-      --namespace         <namespace_id>      Specifies namespace in \
+      --namespace         <namespace_id>           Specifies namespace in \
 the range 1-255
-      --nvme                                  Provides NVMe related stats.
-      --outfile           <output_file>       Write output of the command \
+      --nvme                                       Provides NVMe related stats.
+      --outfile           <output_file>            Write output of the command \
 to a file on bootflash
-      --progress                              Provides progress for --top \
+      --progress                                   Provides progress for --top \
 option. Should not be used on console
-      --refresh                               Refreshes output of --\
+      --refresh                                    Refreshes output of --\
 outstanding-io
-      --target            <target_fcid>       Specifies target FCID in \
+      --target            <target_fcid>            Specifies target FCID in \
 the format 0xDDAAPP
-      --vsan              <vsan_number>       Specifies vsan number
+      --vsan              <vsan_number>            Specifies vsan number
 
 
 
@@ -3699,6 +3925,7 @@ and port-channel only in case of --vsan-thput
 version 8.4(1) onwards
   --nvme and --namespace arguments are supported from NXOS \
 version 8.4(1) onwards
+  --key BUSY with --top is supported from NXOS version 9.2(2) onwards
 '''.format(flow_limit=max_flow_limit))
     return True
 
@@ -3712,7 +3939,7 @@ argparse.ArgumentParser.print_help = print_util_help
 parser = argparse.ArgumentParser(prog='ShowAnalytics',
                                  description='ShowAnalytics')
 parser.add_argument('--version', action='version',
-                    help='version', version='%(prog)s 5.0.0')
+                    help='version', version='%(prog)s 5.1.0')
 parser.add_argument('--info', action="store_true",
                     help='--info | --errors mandatory')
 parser.add_argument('--nvme', action="store_true",
@@ -3814,6 +4041,7 @@ if '__cli_script_args_help' in sys.argv:
         print('IOPS|To Provide result based on iops')
         print('ECT|To Provide result based on ect')
         print('THPUT|To Provide reslut based on throughput')
+        print('BUSY|To Provide reslut based on total busy period, supported from NXOS version 9.2(2) onwards')
         exit(0)
     elif '--module' == sys.argv[-1]:
         print('1-3,5|module range to be considered')
@@ -3916,7 +4144,7 @@ if '__cli_script_args_help' in sys.argv:
         if '--progress' not in sys.argv:
             print('--progress|Prints progress bar')
         if '--key' not in sys.argv:
-            print('--key|Provide key like iops or thput or ect')
+            print('--key|Provide key like iops or thput or ect or busy')
         if '--nvme' not in sys.argv:
             print('--nvme|Provide NVMe related output')
         if '--namespace' not in sys.argv:
@@ -3979,7 +4207,7 @@ if not feature:
 if not validateArgs(args, sw_ver):
     os._exit(1)
 
-date = datetime.datetime.now()
+date = formatdate()
 
 if args.outfile:
     outfile = args.outfile
@@ -3991,7 +4219,7 @@ if args.outfile:
         sys.exit(0)
     try:
         if not args.top or args.outstanding_io:
-            fh.write(str(date) + '\n')
+            fh.write("Data collected at : {}".format(date)+'\n')
         if args.top:
             fh.write('--------Output of --top--------' + '\n')
         if args.outstanding_io:
@@ -4009,7 +4237,7 @@ if args.appendfile:
         print('Unable to append file on bootflash')
     try:
         if not args.top or args.outstanding_io:
-            fh.write(str(date)+'\n')
+            fh.write("Data collected at : {}".format(date)+'\n')
         if args.top:
             fh.write('--------Output of --top--------'+'\n')
         if args.outstanding_io:
@@ -4019,7 +4247,7 @@ if args.appendfile:
         sys.exit(0)
 
 if not args.errorsonly:
-    print(date)
+    print("Data collected at : {}".format(date))
 
 json_out = getData(args, ver=sw_ver)
 

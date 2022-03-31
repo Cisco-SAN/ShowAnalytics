@@ -38,7 +38,9 @@ working_interface = None
 pline = 0
 error_log = []
 analytics_supported_module = ['DS-X9648-1536K9', 'DS-C9148T-K9-SUP',
-                              'DS-C9396T-K9-SUP', 'DS-C9132T-K9-SUP']
+                              'DS-C9396T-K9-SUP', 'DS-C9132T-K9-SUP',
+                              'DS-X9748-3072K9']
+no_npu_module = ['DS-X9748-3072K9']
 interface_list = None
 top_count = 10
 error_flag = False
@@ -215,7 +217,7 @@ def check_port_is_analytics_enabled(inte):
     return True
 
 
-def get_analytics_module():
+def get_analytics_module(swver):
     '''
     **********************************************************************************
     * Function: get_analytics_module
@@ -224,6 +226,11 @@ def get_analytics_module():
     **********************************************************************************
     '''
     global analytics_supported_module
+    global no_npu_module
+    ver = int(''.join([i for i in swver if i.isdigit()])[:3])
+    if int(ver) < 922:
+        for m in no_npu_module:
+            analytics_supported_module.remove(m)
     cmd = "sh mod | i {} | cut -d ' ' -f 1\
           ".format('|'.join(analytics_supported_module))
     status, out = cmd_exc(cmd)
@@ -233,6 +240,65 @@ def get_analytics_module():
         return []
     else:
         return set([i for i in out.split('\n') if i.isdigit()])
+
+def get_analytics_module_with_npu():
+    '''
+    **********************************************************************************
+    * Function: get_analytics_module_with_npu
+    *
+    * Returns: set of module numbers which support analytics and have NPU
+    **********************************************************************************
+    '''
+    global no_npu_module
+    global analytics_supported_module
+    cmd = "sh mod | i {} | exclude {} | cut -d ' ' -f 1\
+          ".format('|'.join(analytics_supported_module),'|'.join(no_npu_module))
+    status, out = cmd_exc(cmd)
+    if not status:
+        print(out)
+        # print 'Unable to find analytics supported module'
+        return []
+    else:
+        return set([i for i in out.split('\n') if i.isdigit()])
+
+def get_hindon_modules():
+    global no_npu_module
+    cmd = "sh mod | i {} | cut -d ' ' -f 1".format('|'.join(no_npu_module))
+    status, out = cmd_exc(cmd)
+    if not status:
+        print(out)
+        # print 'Unable to find analytics supported module'
+        return []
+    else:
+        return set([i for i in out.split('\n') if i.isdigit()])
+
+def get_module_name(mod):
+    '''
+    **********************************************************************************
+    * Function: get_analytics_module
+    *
+    * Returns: set of module numbers which support analytics
+    **********************************************************************************
+    '''
+    cmd = "show module {}".format(mod)
+    status, out = cmd_exc(cmd)
+    matchModule = {}
+    if not status:
+        print(out)
+        # print 'Unable to find analytics supported module'
+        return []
+    else:
+        out = out.splitlines()
+        for line in out:
+            matchModule = re.search(r"(?P<modinf>\d+)\s+(?P<ports>\d+)\s+(?P<modtype>.*)\s+(?P<model>\w.+)\s+(?P<status>[\w-]+)", line)
+            if matchModule:
+                break
+    if matchModule:
+        return matchModule['model'].strip()
+    else:
+        print('Unable to get model name for module {}'.format(mod))
+        return ''
+
 
 
 def get_up_ints_permodule(module):
@@ -643,26 +709,27 @@ def validateArgs(arg, swver):
 
     if (not args.info and not args.errors and not args.errorsonly and not
             args.minmax and not args.evaluate_npuload and not
-            args.vsan_thput and not args.top and not args.outstanding_io):
+            args.vsan_thput and not args.top and not args.outstanding_io and not 
+            args.systemload_active and not args.histogram):
         print("\n Please choose an action via --info or \
 --minmax or --errors or --errorsonly or --evaluate-npuload or \
---vsan-thput or --top or --outstanding-io option\n")
+--vsan-thput or --top or --outstanding-io or --systemload-active or --histogram option\n")
         return False
 
     if (int(args.info) + int(args.minmax) + int(args.errors) +
             int(args.errorsonly) + int(args.evaluate_npuload) +
             int(args.vsan_thput) + int(args.top) +
-            int(args.outstanding_io) > 1):
+            int(args.outstanding_io) + int(args.systemload_active) + int(args.histogram) > 1):
         print("\nPlease choose a single option out of --info,\
 --errors, --errorsonly, --minmax, --evaluate-npuload, \
---vsan-thput, --top and --outstanding-io \n")
+--vsan-thput, --top, --outstanding-io and --systemload-active and --histogram\n")
         return False
 
     if (not args.initiator_itl and not args.target_itl and not
             args.initiator_it and not args.target_it and not
             args.initiator_itn and not args.target_itn and not
             args.evaluate_npuload and not args.vsan_thput and not
-            args.top and not args.outstanding_io):
+            args.top and not args.outstanding_io and not args.systemload_active and not args.histogram):
         print("\n Please choose a table type via --initiator-itl \
 or --target-itl or --initiator-it or --target-it or \
 --initiator-itn or --target-itn option\n")
@@ -735,10 +802,10 @@ xxxx-xxxx-xxxx-xxxx format")
 
     if ((args.initiator_itl or args.target_itl or args.initiator_it or
          args.target_it or args.target_itn or args.initiator_itn ) and (not (args.info or args.errors or
-                                   args.minmax or args.errorsonly))):
+         args.minmax or args.errorsonly or args.histogram))):
         print("--initiator-itl or --target-itl or --initiator-itn or --target-itn or --initiator-it or \
 --target-it is only supported with --info or --errors or \
---errorsonly or --minmax")
+--errorsonly or --minmax or --histogram")
         return False
 
     if args.limit:
@@ -784,19 +851,27 @@ xxxx-xxxx-xxxx-xxxx format")
             return False
 
     if args.module:
-        if not args.evaluate_npuload:
-            print("--module only works with --evaluate-npuload")
+        if not (args.evaluate_npuload or args.systemload_active):
+            print("--module only works with --evaluate-npuload and --systemload-active")
             return False
         if args.interface:
             print("--module is not supported with --interface")
             return False
         module = parse_module(args.module)
-        analytics_mods = get_analytics_module()
-        invalid_module = [i for i in module if i not in analytics_mods]
-        if invalid_module != []:
-            print('Module {} does not support analytics or module/NPU not present\
+        if args.evaluate_npuload:
+            analytics_mods = get_analytics_module_with_npu()
+            invalid_module = [i for i in module if i not in analytics_mods]
+            if invalid_module != []:
+                print('Module {} does not support analytics or module/NPU not present\
 '.format(",".join(invalid_module)))
-            module = [i for i in module if i not in invalid_module]
+                module = [i for i in module if i not in invalid_module]
+        if args.systemload_active:
+            analytics_mods = get_analytics_module(swver)
+            invalid_module = [i for i in module if i not in analytics_mods]
+            if invalid_module != []:
+                print('Module {} does not support analytics or module not present\
+'.format(",".join(invalid_module)))
+                module = [i for i in module if i not in invalid_module]
         if module == []:
             print("Please provide valid module list")
             return False
@@ -806,6 +881,9 @@ xxxx-xxxx-xxxx-xxxx format")
 
         global interface_list
 
+        if args.systemload_active:
+            print("--interface not supported with --systemload-active")
+            return False
         if not args.evaluate_npuload:
             if ',' in args.interface:
                 print('Please provide Single interface only')
@@ -840,7 +918,7 @@ xxxx-xxxx-xxxx-xxxx format")
 analytics is not enabled on them".format(args.interface))
                     return False
         if args.evaluate_npuload:
-            analytics_mods = get_analytics_module()
+            analytics_mods = get_analytics_module_with_npu()
             invalid_intlist = [i for i in intlist if
                                i.strip().split('/')[0][2:]
                                not in analytics_mods]
@@ -880,8 +958,92 @@ Please specify interface and try again")
         print('Please use either --outfile or --appendfile')
         return False
 
-    return True
+    if args.histogram :
+        if (not args.initiator_itl and not args.target_itl and not
+            args.initiator_it and not args.target_it and not
+            args.initiator_itn and not args.target_itn and not
+            args.initiator and not args.target and not args.show_sessions and not 
+            args.stop_session and not args.sessionId):
+            print("\n Please choose a table type via --initiator-itl or --target-itl \
+or --initiator-it or --target-it or --initiator-itn or  --target-itn or --initiator \
+or --target or --show-sessions or --stop-session option\n")
+            return False
+        if args.stop_session:
+            if not args.sessionId:
+                print("Please provide histogram monitor session ID\n \
+Use histogram --show-session to get the session IDs")
+                return False
+            else:
+                if args.sessionId == "ALL" or args.sessionId == 'all':
+                    args.sessionId = "ALL"
+                else:
+                    args.sessionId = args.sessionId.split(",")
+                    for sessionId in args.sessionId:
+                        try:
+                            ssession_id = int(sessionId)
+                        except ValueError:
+                            print("sessionId can take either 'ALL' or histogram session id(s)")
+                            return False
+        if args.sessionId:
+            if not args.stop_session:
+                try:
+                    ssession_id = int(args.sessionId)
+                except ValueError:
+                    print("--sessionId takes single histogram sessionId")
+                    return False
+        if args.initiator_itl or args.target_itl:
+            if not args.initiator or not args.target or not args.lun:
+                print('Please provide all three Initiator , Target and Lun')
+                return False
+        if args.initiator_itn or args.target_itn:
+            if not args.initiator or not args.target or not args.namespace:
+                print('Please provide all three Initiator , Target and Namespace')
+                return False
+        if args.initiator_it or args.target_it:
+            if not args.initiator or not args.target:
+                print('Please provide Initiator and Target')
+                return False
+        if args.initiator and args.target and args.lun:
+            if not args.initiator_itl and not args.target_itl:
+                print("\n Please choose a table type via --initiator-itl or --target-itl")
+                return False
+        elif args.initiator and args.target and args.namespace:
+            if not args.initiator_itn and not args.target_itn:
+                print("\n Please choose a table type via --initiator-itn or --target-itn")
+        elif args.initiator and args.target:
+            if not args.initiator_it and not args.target_it:
+                print("\n Please choose a table type via --initiator-it or --target-it")
+                return False
+    if args.interval:
+        if not args.histogram:
+            print("--interval only works with --histogram option")
+            return False
+        #durList = ['1hr','2hr','6hr','12hr','18hr','24hr']
+        try:
+            if int(args.interval) > 120 or int(args.interval) < 5:
+                print("--interval  supports integer value from 5 to 120 (in minutes). Default = 5")
+                return False
+        except ValueError:
+            print("--interval  supports integer value from 5 to 120 (in minutes). Default = 5")
+            return False
 
+    if args.metric:
+        if not args.histogram:
+            print("--metric only works with --histogram option")
+            return False
+        try:
+            metricList = ['IOPS', 'ECT', 'DAL', 'ERRORS', 'ALL']
+            args.metric = [x.upper() for x in args.metric.split(',')]
+            for metric in args.metric:
+                if metric not in metricList:
+                    print(" {0} is not a valid metric".format(metric))
+                    print(" Valid inputs - {0}".format(", ".join(metricList)))
+                    return False
+        except AttributeError:
+            print('--metric can only take iops or ect or dal or errors')
+            return False
+
+    return True
 
 
 def thput_conv(thput_val):
@@ -2207,7 +2369,7 @@ def displayNpuloadEvaluation(json_out, ver=None):
 
     if (not (args.module)) and (interface_list == []):
         # complete chassis option
-        module = get_analytics_module()
+        module = get_analytics_module_with_npu()
     if args.module:
         module = args.module
     if 'module' in dir():
@@ -2827,7 +2989,7 @@ def displayTop(args, json_out, return_vector, ver=None):
             else:
                 clear_previous_lines(1)
             print()
-            print("Data collected at : {}".format(formatdate()))
+            print("Data collected at : {}".format(formatdate(localtime=True)))
             if str1 is not None:
                 print()
                 print(str1)
@@ -3099,7 +3261,7 @@ def displayTop(args, json_out, return_vector, ver=None):
         print()
         print(str2)
     print()
-    print("Data collected at : {}".format(formatdate()))
+    print("Data collected at : {}".format(formatdate(localtime=True)))
     print()
     print(t)
     if args.outfile or args.appendfile:
@@ -3122,7 +3284,7 @@ def displayTop(args, json_out, return_vector, ver=None):
                 print("Not able to write to a file, No space left on device")
                 sys.exit(0)
             try:
-                fh.write("Data collected at : {}".format(formatdate())+'\n')
+                fh.write("Data collected at : {}".format(formatdate(localtime=True))+'\n')
                 fh.write(data+'\n')
             except OSError as err:
                 print("Not able to write to a file, No space left on device")
@@ -3217,7 +3379,7 @@ def displayOutstandingIo(json_out, return_vector, ver=None):
             else:
                 clear_previous_lines(1)
             print()
-            print("Data collected at : {}".format(formatdate()))
+            print("Data collected at : {}".format(formatdate(localtime=True)))
             if str1 is not None:
                 print()
                 print(str1)
@@ -3328,7 +3490,7 @@ interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
                 os.chdir('/bootflash')
                 fh = open(outfile, 'a+')
                 try:
-                    fh.write("Data collected at : {}".format(formatdate())+'\n')
+                    fh.write("Data collected at : {}".format(formatdate(localtime=True))+'\n')
                     fh.write(pdata + '\n')
                 except OSError as err:
                     print("Not able to write to a file, No space left on device")
@@ -3368,7 +3530,7 @@ interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
         clear_previous_lines(return_vector[0])
     if return_vector[0] is not None:
         clear_previous_lines(2)
-        print("Data collected at : {}".format(formatdate()))
+        print("Data collected at : {}".format(formatdate(localtime=True)))
     if return_vector[2]:
         pdata = return_vector[2]
         print(pdata)
@@ -3394,7 +3556,7 @@ interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
                 print("Not able to write to a file, No space left on device")
                 sys.exit(0)
             try:
-                fh.write("Data collected at : {}".format(formatdate())+'\n')
+                fh.write("Data collected at : {}".format(formatdate(localtime=True))+'\n')
                 fh.write(data + '\n')
             except OSError as err:
                 print("Not able to write to a file, No space left on device")
@@ -3417,6 +3579,988 @@ interface {0} | ex '\-\-' | ex '^\s*$' | ex Tot | ex PORT\
         line_count += 1
     print('')
     return [line_count, return_vector[1], pdata]
+
+
+def displaySystemLoadActive(ver=None):
+    '''
+    **********************************************************************************
+    * Function: displaySystemLoadActive
+    *
+    * Input:  ver is software version of switch
+    * Action: Provides per module system load info for active IT(L/N)
+    * Returns: None
+    **********************************************************************************
+    '''
+
+    ana_query = cli.cli('show analytics query all')
+    inst_q = showAnalyticsQuery(ana_query)
+    qdetails = inst_q.get_query_details()
+
+    hindon_mods = get_hindon_modules()
+    amc_port_groups = {1: [1,3,5,7], 2: [2,4,6,8], 3: [9,11,13,15], 
+                       4: [10,12,14,16], 5: [17,19,21,23], 6: [18,20,22,24],
+                       7: [25,27,29,31], 8: [26,28,30,32], 9: [33,35,37,39],
+                       10:[34,36,38,40 ], 11:[41,43,45,47], 12:[42,44,46,48]}
+
+    conf_response = str(input('This will run differential query on scsi_initiator_itl_flow, scsi_target_itl_flow, \nnvme_initiator_itn_flow, nvme_target_itn_flow, scsi_initiator, scsi_target, \nnvme_initiator and nvme_target  or use the result of installed query if present \n Do you want to continue [Yes|No]? [n]'))
+    if conf_response not in ['Y', 'y', 'Yes', 'yes', 'YES']:
+        return False
+    else:
+        if args.outfile or args.appendfile:
+            try:
+                fh.write('This will run differential query on scsi_initiator_itl_flow, scsi_target_itl_flow, \nnvme_initiator_itn_flow, nvme_target_itn_flow scsi_initiator, scsi_target, \nnvme_initiator and nvme_target or use the result of installed query if present \n Do you want to continue [Yes|No]? [n]' + conf_response+'\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
+        json_out_p = {}
+        json_out = {}
+        flow_keys = ["i_itl","t_itl","i_itn","t_itn","s_init","s_target","n_init","n_target"]
+        query_dict = {}
+        for qkey,qvalue in qdetails.items():
+            flow = None
+            pattern1 = "select\s+all"
+            pattern2 = "select.*port.*from"
+            pattern3 = "select.*target_id.*from"
+            pattern4 = "select.*initiator_id.*from"
+            pattern5 = "select.*from\s+(\S+)"
+            match1 = re.search(pattern1,qvalue['string'])
+            match2 = re.search(pattern2,qvalue['string'])
+            match3 = re.search(pattern3,qvalue['string'])
+            match4 = re.search(pattern4,qvalue['string'])
+            match5 = re.search(pattern5,qvalue['string'])
+            if match5:
+                flow = match5.group(1).split(".")[1]
+            if flow == "scsi_initiator_itl_flow" or flow == "scsi_target_itl_flow" or flow == "nvme_initiator_itn_flow" or flow == "nvme_target_itn_flow" or flow == "scsi_initiator" or flow == "scsi_target" or flow == "nvme_initiator" or flow == "nvme_target":
+                if "differential" in qvalue['options']:
+                    if "where" in qvalue['string'] or "limit" in qvalue['string']:
+                        print()
+                        print("Installed query '{}' has where/limit clause hence exiting...".format(qkey))
+                        return False
+                    else:
+                        if flow == "scsi_initiator" or flow == "nvme_initiator":
+                            if not match1 and not (match2 and match4):
+                                print()
+                                print("Installed query '{}' doesn't fetch port,initiator details hence exiting...".format(qkey))
+                                return False
+                        elif flow == "scsi_target" or flow == "nvme_target":
+                            if not match1 and not (match2 and match3):
+                                print()
+                                print("Installed query '{}' doesn't fetch port,target details hence exiting...".format(qkey))
+                                return False
+                        elif not (match1) and not (match2 and match3 and match4):
+                            print()
+                            print("Installed query '{}' doesn't fetch port,initiator,target details hence exiting...".format(qkey))
+                            return False
+                    if flow == "scsi_initiator_itl_flow":
+                        query_dict["i_itl"] = qkey
+                    elif flow == "scsi_target_itl_flow":
+                        query_dict["t_itl"] = qkey
+                    elif flow == "nvme_initiator_itn_flow":
+                        query_dict["i_itn"] = qkey
+                    elif flow == "nvme_target_itn_flow":
+                        query_dict["t_itn"] = qkey
+                    elif flow == "scsi_initiator":
+                        query_dict["s_init"] = qkey
+                    elif flow == "scsi_target":
+                        query_dict["s_target"] = qkey
+                    elif flow == "nvme_initiator":
+                        query_dict["n_init"] = qkey
+                    elif flow == "nvme_target":
+                        query_dict["n_target"] = qkey
+        cdate = formatdate(localtime=True)
+        print("\nData collected at : {}\n".format(cdate))
+        if query_dict:
+            print("Using result of installed queries: {}\n".format(",".join(list(query_dict.values()))))
+        if args.outfile or args.appendfile:
+            try:
+                fh.write("\nData collected at : {}".format(cdate)+'\n')
+                if query_dict:
+                    fh.write("Using result of installed queries: {}\n".format(",".join(list(query_dict.values()))))
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
+        for fkey in flow_keys:
+            if fkey not in query_dict.keys():
+                json_out_p[fkey] = getData(args, ver=sw_ver, misc =fkey)
+        time.sleep(10)
+        for fkey in flow_keys:
+            if fkey in query_dict.keys():
+                json_out[fkey] = getQueryResult(query_dict[fkey])
+            else:
+                json_out[fkey] = getData(args, ver=sw_ver, misc =fkey)
+
+        initiator_scsi_dict,target_scsi_dict = {},{}
+        initiator_nvme_dict,target_nvme_dict = {},{}
+        active_itls_dict,active_itns_dict = {},{}
+        active_itls,active_itns = {},{}
+        mods = []
+        port_groups = {}
+        s_initiator,s_target,n_initiator,n_target = {},{},{},{}
+        il_modInit, il_modPgInit,tl_modTarget,tl_modPgTarget = [],[],[],[]
+        in_modInit, in_modPgInit,tn_modTarget,tn_modPgTarget = [],[],[],[]
+        itl_mod,itn_mod,itl_modpg,itn_modpg = [],[],[],[]
+        for fkey in flow_keys:
+            if not json_out[fkey]:
+                continue
+            sizeJson = len(json_out[fkey]['values'])
+            counter = 1
+            while counter <= sizeJson:
+                for key, value in json_out[fkey]['values'][str(counter)].items():
+                    if str(key) == 'port':
+                        port = value
+                        mod = port.strip().split('/')[0][2:]
+                        intf = port.strip().split('/')[1]
+                        if args.module:
+                            if mod not in args.module:
+                                continue
+                        if mod in hindon_mods:
+                            for key,value in amc_port_groups.items():
+                                if int(intf) in value:
+                                    port_group=key
+                                    break
+                        else:
+                            port_group = 1
+                        if mod not in mods:
+                            mods.append(mod)
+                            port_groups[mod] = []
+                            s_initiator[mod],s_target[mod] = 0,0
+                            n_initiator[mod],n_target[mod] = 0,0
+                            active_itls[mod],active_itns[mod] = 0,0
+                            active_itls_dict[mod],active_itns_dict[mod],target_scsi_dict[mod],\
+                            target_nvme_dict[mod],initiator_scsi_dict[mod],initiator_nvme_dict[mod]\
+                            = {},{},{},{},{},{}
+                        if port_group not in port_groups[mod]:
+                            port_groups[mod].append(port_group)
+                            active_itls_dict[mod][port_group],active_itns_dict[mod][port_group],\
+                            target_scsi_dict[mod][port_group],target_nvme_dict[mod][port_group],\
+                            initiator_scsi_dict[mod][port_group],initiator_nvme_dict[mod][port_group]\
+                            = 0,0,0,0,0,0
+
+                        if fkey == "s_init":
+                            init_id = json_out[fkey]['values'][str(counter)]['initiator_id'] 
+                            s_mi = '{}-{}'.format(mod,init_id)
+                            s_mpi = '{}-{}-{}'.format(mod,port_group,init_id)
+                            if s_mi not in il_modInit:
+                                il_modInit.append(s_mi)
+                                s_initiator[mod] = s_initiator[mod] + 1
+                            if s_mpi not in il_modPgInit:
+                                il_modPgInit.append(s_mpi)
+                                initiator_scsi_dict[mod][port_group] = initiator_scsi_dict[mod][port_group] + 1
+                        elif fkey == "s_target":
+                            target_id = json_out[fkey]['values'][str(counter)]['target_id'] 
+                            s_mt = '{}-{}'.format(mod,target_id)
+                            s_mpt = '{}-{}-{}'.format(mod,port_group,target_id)
+                            if s_mt not in tl_modTarget:
+                                tl_modTarget.append(s_mt)
+                                s_target[mod] = s_target[mod]+1
+                            if s_mpt not in tl_modPgTarget:
+                                tl_modPgTarget.append(s_mpt)
+                                target_scsi_dict[mod][port_group] = target_scsi_dict[mod][port_group] + 1
+                        elif fkey == "n_init":
+                            init_id = json_out[fkey]['values'][str(counter)]['initiator_id'] 
+                            n_mi = '{}-{}'.format(mod,init_id)
+                            n_mpi = '{}-{}-{}'.format(mod,port_group,init_id)
+                            if n_mi not in in_modInit:
+                                in_modInit.append(n_mi)
+                                n_initiator[mod] = n_initiator[mod] + 1
+                            if n_mpi not in in_modPgInit:
+                                in_modPgInit.append(n_mpi)
+                                initiator_nvme_dict[mod][port_group] = initiator_nvme_dict[mod][port_group] + 1
+                        elif fkey == "n_target":
+                            target_id = json_out[fkey]['values'][str(counter)]['target_id'] 
+                            n_mt = '{}-{}'.format(mod,target_id)
+                            n_mpt = '{}-{}-{}'.format(mod,port_group,target_id)
+                            if n_mt not in tn_modTarget :
+                                tn_modTarget.append(n_mt)
+                                n_target[mod] = n_target[mod]+1
+                            if n_mpt not in tn_modPgTarget:
+                                tn_modPgTarget.append(n_mpt)
+                                target_nvme_dict[mod][port_group] = target_nvme_dict[mod][port_group] + 1
+                        if "itl" in fkey:
+                            init_id = json_out[fkey]['values'][str(counter)]['initiator_id'] 
+                            target_id = json_out[fkey]['values'][str(counter)]['target_id'] 
+                            lun = json_out[fkey]['values'][str(counter)]['lun'] 
+                            itl_m = "{}-{}-{}-{}".format(mod,init_id,target_id,lun)
+                            itl_mpg = "{}-{}-{}-{}-{}".format(mod,port_group,init_id,target_id,lun)
+                            if itl_m not in itl_mod:
+                                itl_mod.append(itl_m)
+                                active_itls[mod] = active_itls[mod] + 1
+                            if itl_mpg not in itl_modpg:
+                                itl_modpg.append(itl_mpg)
+                                active_itls_dict[mod][port_group] = active_itls_dict[mod][port_group] + 1
+                        if "itn" in fkey:
+                            init_id = json_out[fkey]['values'][str(counter)]['initiator_id'] 
+                            target_id = json_out[fkey]['values'][str(counter)]['target_id'] 
+                            namespace = json_out[fkey]['values'][str(counter)]['namespace_id'] 
+                            itn_m = "{}-{}-{}-{}".format(mod,init_id,target_id,namespace)
+                            itn_mpg = "{}-{}-{}-{}-{}".format(mod,port_group,init_id,target_id,namespace)
+                            if itn_m not in itn_mod:
+                                itn_mod.append(itn_m)
+                                active_itns[mod] = active_itns[mod] + 1
+                            if itn_mpg not in itn_modpg:
+                                itn_modpg.append(itn_mpg)
+                                active_itns_dict[mod][port_group] = active_itns_dict[mod][port_group] + 1
+                counter += 1
+
+        total_scsi_itls,total_nvme_itls,total_init_scsi,total_init_nvme = 0,0,0,0
+        total_targ_scsi,total_targ_nvme,total_init,total_targ,total_it = 0,0,0,0,0
+        if not mods:
+            print("\nNo active ITL/Ns\n")
+            sys.exit(1)
+        if args.module:
+            nodataMod = [m for m in args.module if m not in mods]
+            if nodataMod:
+                print("\nNo active ITL/Ns found for modules: {}\n".format(",".join(nodataMod)))
+        t = PrettyTable(['  ', ' SCSI ', ' NVMe ', ' Total ', 'SCSI',
+                 'NVMe', 'Total', ' SCSI', ' NVMe', ' Total'],
+                headers_misc=[['above', ['Module', 'ITL/N Count',
+                                         ' Initiators' , 'Targets'],
+                               [1, 3, 3, 3, 1, 1]]])
+        mods = list(map(int,mods))
+        mods.sort()
+        mods = list(map(str,mods))
+        for mod in mods:
+            tot_scsi_init_mod,tot_scsi_targets_mod,tot_scsi_itl_mod = 0,0,0
+            tot_nvme_init_mod,tot_nvme_targets_mod,tot_nvme_itl_mod = 0,0,0
+            total_itls,total_initiators,total_targets = 0,0,0
+            #Find total
+            total_scsi_itls += active_itls[mod]
+            total_nvme_itls += active_itns[mod]
+            total_init_scsi += s_initiator[mod]
+            total_init_nvme += n_initiator[mod]
+            total_targ_scsi += s_target[mod]
+            total_targ_nvme += n_target[mod]
+            total_itls = active_itls[mod] + active_itns[mod]
+            total_initiators = s_initiator[mod] + n_initiator[mod]
+            total_targets = s_target[mod] + n_target[mod]
+
+            column_str = "{0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}".format(mod,active_itls[mod],active_itns[mod],total_itls,s_initiator[mod],n_initiator[mod],total_initiators,s_target[mod],n_target[mod],total_targets)
+            #print(column_str)
+            column_values = column_str.split(",")
+            t.add_row(column_values)
+
+        total_it = total_scsi_itls + total_nvme_itls
+        total_targ = total_targ_scsi + total_targ_nvme
+        total_init = total_init_scsi + total_init_nvme
+        column_str = "Total, {0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}".format(total_scsi_itls,total_nvme_itls,total_it,total_init_scsi,total_init_nvme,total_init,total_targ_scsi,total_targ_nvme,total_targ)
+        column_values = column_str.split(",")
+        t.add_row(column_values)
+
+        print(t)
+        if args.outfile or args.appendfile:
+            data = t.get_string()
+            try:
+                fh.write(data+'\n')
+            except OSError as err:
+                print("Not able to write to a file, No space left on device")
+                sys.exit(0)
+
+        if args.detail:
+            flag_hindon = False
+            detModules = []
+            for mod in mods:
+                if mod in hindon_mods:
+                    flag_hindon = True
+                    detModules.append(get_module_name(mod))
+            if flag_hindon:
+                detModules = set(detModules)
+                print("\nDetailed output for {} modules".format(",".join(detModules)))
+                if args.outfile or args.appendfile:
+                    try:
+                        fh.write("\nDetailed output for {} modules\n".format(",".join(detModules)))
+                    except OSError as err:
+                        print("Not able to write to a file, No space left on device")
+                        sys.exit(0)
+            else:
+                print("\nNo modules having AMC with active IT(L/N)s found")
+                if args.outfile or args.appendfile:
+                    try:
+                        fh.write("\nNo modules having AMC with active IT(L/N)s found\n")
+                    except OSError as err:
+                        print("Not able to write to a file, No space left on device")
+                        sys.exit(0)
+                sys.exit(1)
+        else:
+            sys.exit(1)
+        for mod in mods:
+            total_scsi_itls,total_nvme_itls,total_init_scsi,total_init_nvme = 0,0,0,0
+            total_targ_scsi,total_targ_nvme,total_init,total_targ,total_it = 0,0,0,0,0
+            if mod in hindon_mods:
+                print("Module : {}".format(mod))
+                t = PrettyTable(['  ', ' SCSI ', ' NVMe ', ' Total ', 'SCSI',
+                         'NVMe', 'Total', ' SCSI', ' NVMe', ' Total'],
+                        headers_misc=[['above', ['Ports', 'ITL/N Count',
+                                                 ' Initiators' , 'Targets'],
+                                       [1, 3, 3, 3, 1, 1]]])
+                port_groups[mod].sort()
+                for port_group in port_groups[mod]:
+                    total_itls = active_itls_dict[mod][port_group] + active_itns_dict[mod][port_group]
+                    total_initiators = initiator_scsi_dict[mod][port_group] + initiator_nvme_dict[mod][port_group]
+                    total_targets = target_scsi_dict[mod][port_group] + target_nvme_dict[mod][port_group]
+
+                    #Find total
+                    total_scsi_itls += active_itls_dict[mod][port_group]
+                    total_nvme_itls += active_itns_dict[mod][port_group]
+                    total_init_scsi += initiator_scsi_dict[mod][port_group]
+                    total_init_nvme += initiator_nvme_dict[mod][port_group]
+                    total_targ_scsi += target_scsi_dict[mod][port_group]
+                    total_targ_nvme += target_nvme_dict[mod][port_group]
+                    portStr = ",".join(["fc"+mod+"/"+str(x) for x in amc_port_groups[port_group]])
+                    column_str = "{0}-{1}-{2}-{3}-{4}-{5}-{6}-{7}-{8}-{9}".format(portStr,active_itls_dict[mod][port_group],active_itns_dict[mod][port_group],total_itls,initiator_scsi_dict[mod][port_group],initiator_nvme_dict[mod][port_group],total_initiators,target_scsi_dict[mod][port_group],target_nvme_dict[mod][port_group],total_targets)
+                    column_values = column_str.split("-")
+                    t.add_row(column_values)
+
+                total_it = total_scsi_itls + total_nvme_itls
+                total_targ = total_targ_scsi + total_targ_nvme
+                total_init = total_init_scsi + total_init_nvme
+                column_str = "Total,{0},{1},{2},{3},{4},{5},{6},{7},{8}".format(total_scsi_itls,total_nvme_itls,total_it,total_init_scsi,total_init_nvme,total_init,total_targ_scsi,total_targ_nvme,total_targ)
+                column_values = column_str.split(",")
+                t.add_row(column_values)
+    
+                print(t)
+                if args.outfile or args.appendfile:
+                    data = t.get_string()
+                    try:
+                        fh.write("Module : {}\n".format(mod))
+                        fh.write(data+'\n')
+                    except OSError as err:
+                        print("Not able to write to a file, No space left on device")
+                        sys.exit(0)
+
+def getHistogramSessions(sessionId = None):
+    sessions = 0
+    sessionFiles = []
+    if sessionId:
+        cmd = "show processes  |i nxpython | i " + sessionId
+    else:
+        cmd = "show processes  |i nxpython"
+    status, out = cmd_exc(cmd)
+    if not status:
+        print("Unable to get histogram session data, please try again")
+        sys.exit(0)
+
+    for line in out.splitlines():
+        process_id = line.split()[0].strip()
+        for files in os.listdir("/nxos/tmp"):
+            filename = "histogram_" + process_id
+            m = re.search(filename, files)
+            if m:
+                sessionFiles.append("/nxos/tmp/" + files)
+    return sessionFiles
+
+def stopHistogramSessions(processes):
+    filenames = getHistogramSessions()
+    proc_list = []
+    invalidProcs = []
+    file_dict = {}
+    for filename in filenames:
+        fields = filename.split("_")
+        if "ALL" in processes:
+            proc_list.append(fields[1])
+            file_dict[fields[1]] = filename
+        else:
+            for process_id in processes:
+                if process_id == fields[1]:
+                    proc_list.append(fields[1])
+                    file_dict[process_id] = filename
+
+    if "ALL" not in processes:
+        invalidProcs = list(set(processes).difference(set(file_dict.keys())))
+
+    if invalidProcs:
+        print("Invalid session IDs: {}".format(",".join(invalidProcs)))
+    for process_id in proc_list:
+        try:
+            print("Stopping session id: {}".format(process_id))
+            os.kill(int(process_id),signal.SIGKILL)
+            os.remove(file_dict[process_id])
+        except Exception as e:
+            print("Unable to kill process id: {} Error: {} ".format(process_id,e))
+
+def displayHistogramSessions(filenames=None,sessionId=None):
+    if filenames:
+        t = PrettyTable(["Session ID","Arguments"])
+        t.align['Arguments'] = 'l'
+        t.align['Session ID'] = 'r'
+    elif sessionId:
+        filenames = getHistogramSessions(sessionId)
+        if not filenames:
+            print("Provided session id is not a histogram monitor session ID")
+            sys.exit(1)
+
+    for filename in filenames:
+        metricList = []
+        try:
+            with open(filename) as hf:
+                f_str = hf.read()
+                if "IOPS" in f_str:
+                    metricList.append("IOPS")
+                if "ECT" in f_str:
+                    metricList.append("ECT")
+                if "DAL" in f_str:
+                    metricList.append("DAL")
+                if "FAILURE" in f_str:
+                    metricList.append("ERRORS")
+        except Exception as e:
+            syslog.syslog(2,'ShowAnalytics: Unable to write to {0} exception {1}'.format(filename, e))
+            sys.exit(1)
+
+        filename = os.path.basename(filename)
+        filename = filename.split(".txt")[0]
+        fields = filename.split("_")
+        process_id = fields[1]
+        metric = ",".join(metricList)
+        
+        if "init-itl" in filename:
+            dur = fields[6][:-4]
+            arguments = "--initiator-itl --initiator {} --target {} --lun {} --interval {} --metric {}".format(fields[3],fields[4],fields[5],dur,metric)
+        elif "target-itl" in filename:
+            dur = fields[6][:-4]
+            arguments = "--target-itl --initiator {} --target {} --lun {} --interval {} --metric {}".format(fields[3],fields[4],fields[5],dur,metric)
+        elif "init-itn" in filename:
+            dur = fields[6][:-4]
+            arguments = "--initiator-itn --initiator {} --target {} --namespace {} --interval {} --metric {}".format(fields[3],fields[4],fields[5],dur,metric)
+        elif "target-itn" in filename:
+            dur = fields[6][:-4]
+            arguments = "--target-itn --initiator {} --target {} --namespace {} --interval {} --metric {}".format(fields[3],fields[4],fields[5],dur,metric)
+        elif "init-it" in filename:
+            dur = fields[5][:-4]
+            arguments = "--initiator-it --initiator {} --target {} --interval {} --metric {}".format(fields[3],fields[4],dur,metric)
+        elif "target-it" in filename:
+            dur = fields[5][:-4]
+            arguments = "--target-it --initiator {} --target {}  --interval {} --metric {}".format(fields[3],fields[4],dur,metric)
+        elif "init" in filename:
+            dur = fields[4][:-4]
+            arguments = "--initiator {} --interval {} --metric {}".format(fields[3],dur,metric)
+        elif "target" in filename:
+            dur = fields[4][:-4]
+            arguments = "--target {} --interval {} --metric {}".format(fields[3],dur,metric)
+        if "nvme" in filename:
+            arguments = arguments+ " --nvme"
+        if sessionId:
+            hfile = "/nxos/tmp/" + filename + ".txt"
+            metricList = []
+            metricList.append("TIME")
+            if "IOPS" in metric:
+                metricList.extend(["IOPSR","IOPSW"])
+            if "ECT" in metric:
+                metricList.extend(["ECTR","ECTW"])
+            if "DAL" in metric:
+                metricList.extend(["DALR","DALW"])
+            if "ERRORS" in metric:
+                metricList.extend(["FAILURESR","FAILURESW","ABORTSR","ABORTSW"])
+
+            displayHistogramData(hfile,dur,metricList)
+            sys.exit(1)
+        else:
+            t.add_row([process_id,arguments])
+    print(t)
+    if args.outfile or args.appendfile:
+        data = t.get_string()
+        try:
+            fh.write(data+'\n')
+        except OSError as err:
+            print("Not able to write to a file, No space left on device")
+            sys.exit(0)
+        try:
+            fh.close()
+        except OSError as err:
+            print("Not able to write to a file, No space left on device")
+            sys.exit(0)
+
+def displayHistogramData(filename,interval,metricList):
+    try:
+        with open(filename, 'r+') as fhfile:
+            prev_data = fhfile.read()
+    except Exception as e:
+        syslog.syslog(2,'ShowAnalytics: Unable to read to {0} exception {1}'.format(filename, e))
+        sys.exit(1)
+
+    metricDict = {"IOPSR":"IOPS Read","IOPSW":"IOPS Write",
+                  "ECTR":"ECT Read","ECTW":"ECT Write",
+                  "DALR":"DAL Read","DALW":"DAL Write",
+                  "FAILURESR":"FAILURES Read","FAILURESW":"FAILURES Write",
+                  "ABORTSR":"ABORTS Read","ABORTSW":"ABORTS Write"}
+
+    prev_data = prev_data.strip()
+    prev_data = prev_data.split('\n')
+    metricData = {}
+    for line in prev_data:
+        for metric in metricList:
+            if metric in line:
+                if metric == "TIME":
+                    sample_time = list(filter(None,line.split(":")[1].split(",")[:12]))
+                else:
+                    metricData[metric] = list(filter(None,line.split(":")[1].split(",")[:12]))
+
+    sample_time = list(map(int,sample_time))
+    date_list = list(map(lambda x:datetime.datetime.fromtimestamp(x).strftime("%d-%m-%Y"),sample_time))
+    time_list = list(map(lambda x:datetime.datetime.fromtimestamp(x).strftime("%H:%M:%S"),sample_time))
+
+
+    date_list = [""] + date_list
+    time_list = ["Metric"] + time_list
+
+
+    t = PrettyTable(time_list,
+                headers_misc=[['above', date_list, [1 for x in range(len(date_list))]]])
+
+    t.align['Metric'] = 'l'
+    for metric in metricData.keys():
+        if "ECT" in metric or "DAL" in metric:
+            metricData[metric] = list(map(time_conv,metricData[metric]))
+
+        t.add_row([metricDict[metric]] + metricData[metric])
+    print(t)
+    if args.outfile or args.appendfile:
+        data = t.get_string()
+        try:
+            fh.write(data+'\n')
+        except OSError as err:
+            print("Not able to write to a file, No space left on device")
+            sys.exit(0)
+        try:
+            fh.close()
+        except OSError as err:
+            print("Not able to write to a file, No space left on device")
+            sys.exit(0)
+
+
+def displayHistogram(args,json_out,ver=None) :
+    counter = 1
+    hargs = ""
+
+    if args.interval == None:
+        args.interval = '5'
+    if args.metric == None:
+        args.metric = 'ALL'
+
+    metricList = []
+    if args.metric is None or"ALL" in args.metric:
+        metricList = ["IOPSR","IOPSW","ECTR","ECTW","DALR","DALW","FAILURESR",
+                "FAILURESW","ABORTSR","ABORTSW"]
+    else:
+        if "IOPS" in args.metric:
+            metricList.extend(["IOPSR","IOPSW"])
+        if "ECT" in args.metric:
+            metricList.extend(["ECTR","ECTW"])
+        if "DAL" in args.metric:
+            metricList.extend(["DALR","DALW"])
+        if "ERRORS" in args.metric:
+            metricList.extend(["FAILURESR","FAILURESW","ABORTSR","ABORTSW"])
+    metricList.append("TIME")
+
+    if args.initiator:
+        hargs = hargs + '_' + args.initiator
+    if args.target:
+        hargs = hargs + '_' + args.target
+    if args.lun:
+        hargs = hargs + '_' + args.lun
+    if args.namespace:
+        hargs = hargs + '_' + args.namespace
+    flowname = ""
+    if args.initiator_itl:
+        flowname = "_init-itl"
+    elif args.target_itl:
+        flowname = "_target-itl"
+    elif args.initiator_itn:
+        flowname = "_init-itn"
+    elif args.target_itn:
+        flowname = "_target-itn"
+    elif args.initiator_it:
+        if args.nvme:
+            flowname = "_init-it-nvme"
+        else:
+            flowname = "_init-it"
+    elif args.target_it:
+        if args.nvme:
+            flowname = "_target-it-nvme"
+        else:
+            flowname = "_target-it"
+    elif args.initiator:
+        if args.nvme:
+            flowname = "_init-nvme"
+        else:
+            flowname = "_init"
+    elif args.target:
+        if args.nvme:
+            flowname = "_target-nvme"
+        else:
+            flowname = "_target"
+
+    hfile = 'histogram_(\d+)' + flowname + hargs + '_(\d+)mins\.txt'
+    for files in os.listdir("/nxos/tmp"):
+        m = re.search(hfile, files)
+        if m:
+            process_id = m.group(1)
+            dur = m.group(2)
+            cmd = "show processes  |i nxpython | egrep '^\s*{}'".format(process_id)
+            status, out = cmd_exc(cmd)
+            if not status:
+                print("Unable to get histogram session data, please try again")
+                sys.exit(0)
+            if out:
+                filename = "/nxos/tmp/" + m.group(0)
+                metricFlag = True
+                try:
+                    with open(filename) as hf:
+                        f_str = hf.read()
+                        for metric in metricList:
+                            if metric not in f_str:
+                               metricFlag = False
+                               break
+                except Exception as e:
+                    syslog.syslog(2,'ShowAnalytics: Unable to write to {0} exception {1}'.format(hfile, e))
+                    sys.exit(1)
+                if dur != args.interval or metricFlag != True:
+                    print("Histogram monitor session already running for given args with different interval or different metric")
+                    print("Session ID:{}".format(process_id))
+                    conf_response = str(input('Do you want to stop it and start new [Yes|No]? [n]'))
+                    if conf_response not in ['Y', 'y', 'Yes', 'yes', 'YES']:
+                        cdate = formatdate(localtime=True)
+                        print("\nData collected at : {}\n".format(cdate))
+                        displayHistogramData(filename,dur,metricList)
+                        sys.exit(0)
+                    else:
+                        hfile = '/nxos/tmp/histogram_' + str(process_id) + flowname + hargs + '_'+ dur +'mins.txt'
+                        print("Stopping process id {}".format(int(process_id)))
+                        os.kill(int(process_id),signal.SIGKILL)
+                        os.remove(hfile)
+                        break
+                else:
+                    cdate = formatdate(localtime=True)
+                    print("\nData collected at : {}\n".format(cdate))
+                    displayHistogramData(filename,dur,metricList)
+                    sys.exit(0)
+
+            else:
+                hfile = '/nxos/tmp/histogram_' + str(process_id) +  flowname + hargs + '_'+ dur +'mins.txt'
+                os.remove(hfile)
+                break
+
+    sessionFiles = getHistogramSessions()
+    if len(sessionFiles) >= 3:
+        print("Maximum 3 monitor sessions can be active at a time. You can stop one of these and retry")
+        displayHistogramSessions(sessionFiles)
+        sys.exit(0)
+
+    interval = int(args.interval)
+    sleeptime = interval*60
+
+    print("Starting histogram monitor session")
+    pid = os.fork()
+    if pid == 0:
+        # Child  - Starts histogram session in background
+        init_flag = True
+        os.setsid()  # This creates a new session
+        process_id = os.getpid()
+        print("Session ID: {}".format(process_id))
+        hargs = ""
+        if args.initiator:
+            hargs = hargs + '_' + args.initiator
+        if args.target:
+            hargs = hargs + '_' + args.target
+        if args.lun:
+            hargs = hargs + '_' + args.lun
+        if args.namespace:
+            hargs = hargs + '_' + args.namespace
+        if args.interval:
+            hargs = hargs + '_' + args.interval + 'mins'
+
+        flowname = ""
+        if args.initiator_itl:
+            flowname = "_init-itl"
+        elif args.target_itl:
+            flowname = "_target-itl"
+        elif args.initiator_itn:
+            flowname = "_init-itn"
+        elif args.target_itn:
+            flowname = "_target-itn"
+        elif args.initiator_it:
+            if args.nvme:
+                flowname = "_init-it-nvme"
+            else:
+                flowname = "_init-it"
+        elif args.target_it:
+            if args.nvme:
+                flowname = "_target-it-nvme"
+            else:
+                flowname = "_target-it"
+        elif args.initiator:
+            if args.nvme:
+                flowname = "_init-nvme"
+            else:
+                flowname = "_init"
+        elif args.target:
+            if args.nvme:
+                flowname = "_target-nvme"
+            else:
+                flowname = "_target"
+
+        hfile = '/nxos/tmp/histogram_' + str(process_id) + flowname + hargs + '.txt'
+        
+        if args.interval:
+            interval = int(args.interval)
+            sleeptime = interval*60
+        else:
+            sleeptime = 300
+        init_totalread, init_totalwrite, init_readCount, init_writeCount, \
+        init_readIoIntTime, init_writeIoIntTime,init_abortsR, init_abortsW, \
+        init_failR, init_failW  = 0,0,0,0,0,0,0,0,0,0
+
+        for key, value in json_out['values']["1"].items():
+            if key == 'sampling_end_time':
+                init_end_time = value
+            if str(key) == 'read_io_rate' and value != 0:
+                init_iopsR = int(value)
+                continue
+            if str(key) == 'write_io_rate' and value != 0:
+                init_iopsW = int(value)
+                continue
+            if str(key) == 'total_read_io_time' and value != 0:
+                init_totalread = int(value)
+                continue
+            if str(key) == 'total_write_io_time' and value != 0:
+                init_totalwrite = int(value)
+                continue
+            if (str(key) == 'total_time_metric_based_read_io_count' and
+                    value != 0 and ver != '8.3(1)'):
+                init_readCount = int(value)
+                continue
+            if (str(key) == 'total_time_metric_based_write_io_count' and
+                    value != 0 and ver != '8.3(1)'):
+                init_writeCount = int(value)
+                continue
+            if (str(key) == 'total_read_io_count' and value != 0 and
+                    ver == '8.3(1)'):
+                init_readCount = int(value)
+                continue
+            if (str(key) == 'total_write_io_count' and value != 0 and
+                    ver == '8.3(1)'):
+                init_writeCount = int(value)
+                continue
+            if (str(key) == 'total_read_io_initiation_time' and value != 0):
+                init_readIoIntTime = int(value)
+                continue
+            if (str(key) == 'total_write_io_initiation_time' and value != 0):
+                init_writeIoIntTime = int(value)
+                continue
+            if (str(key) == 'total_read_io_bytes' and value != 0):
+                init_readIoB = int(value)
+                continue
+            if (str(key) == 'total_write_io_bytes' and value != 0):
+                init_writeIoB = int(value)
+                continue
+            if str(key) == 'read_io_aborts' and value != 0:
+                init_abortsR = int(value)
+                continue
+            if str(key) == 'write_io_aborts' and value != 0:
+                init_abortsW = int(value)
+                continue
+            if str(key) == 'read_io_failures' and value != 0:
+                init_failR = int(value)
+                continue
+            if str(key) == 'write_io_failures' and value != 0:
+                init_failW = int(value)
+                continue
+        init_falg = 1
+        init_ectR,init_ectW,init_dalR,init_dalW = 0,0,0,0
+        if init_readCount !=0:
+            init_ectR = init_totalread // init_readCount
+            init_dalR =  init_readIoIntTime // init_readCount
+        if init_writeCount !=0:
+            init_ectW = init_totalwrite // init_writeCount
+            init_dalW =  init_writeIoIntTime // init_writeCount
+
+        metricData = {}
+        metricData["TIME"] = str(init_end_time)
+        metricData["IOPSR"] = str(init_iopsR) 
+        metricData["IOPSW"] = str(init_iopsW)
+        metricData["ECTR"] = str(init_ectR) 
+        metricData["ECTW"] = str(init_ectW)
+        metricData["DALR"] = str(init_dalR)
+        metricData["DALW"] = str(init_dalW)
+        metricData["FAILURESR"] = str(init_failR) 
+        metricData["FAILURESW"] = str(init_failW)
+        metricData["ABORTSR"] = str(init_abortsR)
+        metricData["ABORTSW"] = str(init_abortsW)
+        try:
+            with open(hfile, 'w') as fhfile:
+                for metric in metricList:
+                    lstr = metric+":"+ metricData[metric] + '\n'
+                    fhfile.write(lstr)
+        except Exception as e:
+            syslog.syslog(2,'ShowAnalytics: Unable to write to {0} exception {1}'.format(hfile, e))
+            sys.exit(1)
+
+        displayHistogramData(hfile,args.interval,metricList)
+        print("Histogram data will get updated every {} mins".format(sleeptime//60))
+        totalread,totalwrite, readCount, writeCount, readIoIntTime, writeIoIntTime,abortsR,abortsW,failR,failW = 0,0,0,0,0,0,0,0,0,0
+        while(1):
+            time.sleep(sleeptime)
+            if init_falg:
+                prev_totalread, prev_totalwrite, prev_readcount,\
+                prev_writecount, prev_readIoIntTime, prev_writeIoIntTime,prev_abortsR,prev_abortsW, \
+                prev_failR,prev_failW = init_totalread, init_totalwrite, init_readCount, \
+                init_writeCount, init_readIoIntTime, init_writeIoIntTime,init_abortsR, \
+                init_abortsW, init_failR, init_failW
+            else:
+                prev_totalread, prev_totalwrite, prev_readcount,\
+                prev_writecount, prev_readIoIntTime, prev_writeIoIntTime, prev_abortsR, \
+                prev_abortsW, prev_failR,prev_failW = totalread, totalwrite, readCount, \
+                writeCount, readIoIntTime, writeIoIntTime, abortsR ,abortsW, failR, failW
+
+            json_out = getData(args)
+            if not json_out:
+                syslog.syslog(2,'ShowAnalytics: Unable to get data from analytics query hence exiting histogram session {}'.format(hfile))
+                os.remove(hfile)
+                os.kill(int(process_id),signal.SIGKILL)
+                sys.exit(0)
+            init_falg = 0
+            vmid = ''
+            iopsR, ectR, dalR = 0, 0, 0
+            iopsW, ectW, dalW = 0, 0, 0
+            for key, value in json_out['values']["1"].items():
+                if key == 'sampling_end_time':
+                    end_time = value
+                if str(key) == 'read_io_rate' and value != 0:
+                    iopsR = int(value)
+                    continue
+                if str(key) == 'write_io_rate' and value != 0:
+                    iopsW = int(value)
+                    continue
+                if str(key) == 'read_io_bandwidth' and value != 0:
+                    thputR = value
+                    continue
+                if str(key) == 'write_io_bandwidth' and value != 0:
+                    thputW = value
+                    continue
+                if str(key) == 'total_read_io_time' and value != 0:
+                    totalread = int(value)
+                    continue
+                if str(key) == 'total_write_io_time' and value != 0:
+                    totalwrite = int(value)
+                    continue
+                if (str(key) == 'total_time_metric_based_read_io_count' and
+                        value != 0 and ver != '8.3(1)'):
+                    readCount = int(value)
+                    continue
+                if (str(key) == 'total_time_metric_based_write_io_count'
+                        and value != 0 and ver != '8.3(1)'):
+                    writeCount = int(value)
+                    continue
+                if (str(key) == 'total_read_io_count' and value != 0 and
+                        ver == '8.3(1)'):
+                    readCount = int(value)
+                    continue
+                if (str(key) == 'total_write_io_count' and value != 0 and
+                        ver == '8.3(1)'):
+                    writeCount = int(value)
+                    continue
+                if str(key) == 'peak_read_io_rate' and value != 0:
+                    peak_read_iops = int(value)
+                    continue
+                if str(key) == 'peak_write_io_rate' and value != 0:
+                    peak_write_iops = int(value)
+                    continue
+                if str(key) == 'peak_read_io_bandwidth' and value != 0:
+                    peak_read_thput = value
+                    continue
+                if str(key) == 'peak_write_io_bandwidth' and value != 0:
+                    peak_write_thput = value
+                    continue
+                if str(key) == 'read_io_completion_time_min' and value != 0:
+                    read_ect_min = value
+                    continue
+                if (str(key) == 'total_read_io_initiation_time' and value != 0):
+                    readIoIntTime = int(value)
+                    continue
+                if (str(key) == 'total_write_io_initiation_time' and value != 0):
+                    writeIoIntTime = int(value)
+                    continue
+                if (str(key) == 'total_read_io_bytes' and value != 0):
+                    readIoB = int(value)
+                    continue
+                if (str(key) == 'total_write_io_bytes' and value != 0):
+                    writeIoB = int(value)
+                    continue
+                if str(key) == 'read_io_aborts' and value != 0: 
+                    abortsR = int(value)
+                    continue
+                if str(key) == 'write_io_aborts' and value != 0:
+                    abortsW = int(value)
+                    continue
+                if str(key) == 'read_io_failures' and value != 0:
+                    failR = int(value)
+                    continue
+                if str(key) == 'write_io_failures' and value != 0:
+                    failW = int(value)
+                    continue
+
+            diff_readCount = int(readCount)-int(prev_readcount)
+            diff_writeCount = int(writeCount)-int(prev_writecount)
+            diff_readIoIntTime = int(readIoIntTime)-int(prev_readIoIntTime)
+            diff_writeIoIntTime = int(writeIoIntTime) - int(prev_writeIoIntTime)
+            diff_abortsR = abs(abortsR - prev_abortsR)
+            diff_abortsW = abs(abortsW - prev_abortsW)
+            diff_failR = abs(failR - prev_failR)
+            diff_failW = abs(failW - prev_failW)
+            if diff_readCount != 0:
+                ectR = abs(int(totalread) -
+                           int(prev_totalread)) // diff_readCount
+            if diff_writeCount != 0:
+                ectW = abs(int(totalwrite) -
+                           int(prev_totalwrite)) // diff_writeCount
+            if diff_readCount != 0:
+                dalR =  diff_readIoIntTime // diff_readCount
+            if diff_writeCount != 0:
+                dalW =  diff_writeIoIntTime // diff_writeCount
+            try:
+                with open(hfile, 'r+') as fhfile:
+                    prev_data = fhfile.read()
+            except Exception as e:
+                syslog.syslog(2,'ShowAnalytics: Unable to write to {0} exception {1}'.format(hfile, e))
+                sys.exit(1)
+
+            prev_data = prev_data.strip()
+            prev_data = prev_data.split('\n')
+            metricData = {}
+            for line in prev_data:
+                if "TIME" in line:
+                    metricData["TIME"] = [str(end_time)] + line.split(":")[1].split(",")[:11]
+                if "IOPSR" in line:
+                    metricData["IOPSR"] = [str(iopsR)] + line.split(":")[1].split(",")[:11]
+                if "IOPSW" in line:
+                    metricData["IOPSW"] = [str(iopsW)] + line.split(":")[1].split(",")[:11]
+                if "ECTR" in line:
+                    metricData["ECTR"] = [str(ectR)] + line.split(":")[1].split(",")[:11]
+                if "ECTW" in line:
+                    metricData["ECTW"] = [str(ectW)] + line.split(":")[1].split(",")[:11]
+                if "DALR" in line:
+                    metricData["DALR"] = [str(dalR)] + line.split(":")[1].split(",")[:11]
+                if "DALW" in line:
+                    metricData["DALW"] = [str(dalW)] + line.split(":")[1].split(",")[:11]
+                if "FAILURESR" in line:
+                    metricData["FAILURESR"] = [str(diff_failR)] + line.split(":")[1].split(",")[:11]
+                if "FAILURESW" in line:
+                    metricData["FAILURESW"] = [str(diff_failW)] + line.split(":")[1].split(",")[:11]
+                if "ABORTSR" in line:
+                    metricData["ABORTSR"] = [str(diff_abortsR)] + line.split(":")[1].split(",")[:11]
+                if "ABORTSW" in line:
+                    metricData["ABORTSW"] = [str(diff_abortsW)] + line.split(":")[1].split(",")[:11]
+            os.remove(hfile)
+            try:
+                with open(hfile, 'w') as fhfile:
+                    for metric in metricList:
+                        replaceExp = metric+":"+ ",".join(metricData[metric]) + '\n'
+                        fhfile.write(replaceExp)
+            except Exception as e:
+                syslog.syslog(2,'ShowAnalytics: Unable to write to {0} exception {1}'.format(hfile, e))
+                sys.exit(1)
+
+    else:
+        # Parent
+        exit()
 
 
 def getSwVersion():
@@ -3442,6 +4586,78 @@ def getSwVersion():
         return None
 
 
+class showAnalyticsQuery(object):
+    def __init__(self, output):
+        output = output.split("\n")
+
+        pattern = "Total queries:([0-9]+)"
+
+        self.totalQueries = 0
+        self.requiredLines = []
+        self.queryname_string_and_type = {}
+        self.stopIndex = 3
+        self.qdetails = {}
+
+        for line in output:
+            line = line.strip()
+            m = re.match(pattern, line)
+            if m:
+                self.totalQueries = m.group(1).strip()
+            if "Query Name" in line:
+                qname = line.split(":")[1]
+                self.qdetails[qname] = {}
+                self.qdetails[qname]["options"] = ''
+            if "Query String" in line:
+                self.qdetails[qname]["string"] = line.split(":")[1]
+            if "Query Type" in line:
+                self.qdetails[qname]["type"] = line.split(":")[1]
+            if "Query Options" in line:
+                self.qdetails[qname]["options"] = line.split(":")[1]
+
+    def get_total_queries(self):
+        return int(self.totalQueries)
+
+    def get_query_details(self):
+        return self.qdetails
+
+def getQueryResult(qname):
+    try:
+        json_str = cli.cli("show analytics query name " + qname + " result")
+    except cli.cli_syntax_error:
+        pass
+
+    global error
+    global error_flag
+
+    try:
+        json_out = json.loads(json_str)
+    except ValueError as e:
+        error['getData_str'] = json_str
+        error_flag = True
+        error['line_count'] = len(json_str.split('\n')) + 1
+        json_out = None
+    except MemoryError:
+        error['getData_str'] = "Querry Output Too Huge to be processed"
+        json_out = None
+        error_flag = True
+        error['line_count'] = 1
+    #print ("Jsone {0}".format(json_out))
+    return json_out
+
+
+def replaceline(fileh, pattern, subst):
+    # Read contents from file as a single string
+    with open(fileh, 'r') as file_handle:
+        file_string = file_handle.read()
+
+    file_string = (re.sub(pattern, subst, file_string))
+
+    # Write contents to file.
+    with open(fileh, 'w') as file_handle:
+        file_handle.write(file_string)
+
+
+
 def getData(args, misc=None, ver=None):
     '''
     **********************************************************************************
@@ -3454,7 +4670,15 @@ def getData(args, misc=None, ver=None):
     *           - ver is software version number
     *  misc
     *  0 : default
-    *  1 : run target querry this time for outstanding_io,top and histogram
+    *  1 : run target querry this time for outstanding_io,top
+    *  i_itl : to run query on fc-scsi.scsi_inititator_itl_flow for systemload_active
+    *  t_itl : to run query on fc-scsi.scsi_target_itl_flow for systemload_active
+    *  i_itn : to run query on fc-nvme.nvme_inititator_itn_flow for systemload_active
+    *  t_itn : to run query on fc-nvme.nvme_target_itn_flow for systemload_active
+    *  s_init: to run query on fc-scsi.scsi_inititator for systemload_active
+    *  s_target: to run query on fc-scsi.scsi_target for systemload_active
+    *  n_init: to run query on fc-nvme.nvme_inititator for systemload_active
+    *  n_target: to run query on fc-nvme.nvme_target for systemload_active
     *
     *  Action: Forms a query based on args and misc , run the query on
     *           the switch and get json response and convert it into
@@ -3487,6 +4711,7 @@ def getData(args, misc=None, ver=None):
 
     table_name = ''
     global interface_list
+
 
     if args.evaluate_npuload:
         if misc is None:
@@ -3651,6 +4876,63 @@ def getData(args, misc=None, ver=None):
                 from {proto}.{proto1}_target_it{ln}_flow\
                 ".format(lun=lun_field, proto=protocol_str,
                          proto1=table_protocol_str, ln=ln_str, vmid=vmid_str, app_id = app_id_str)
+    if args.systemload_active:
+        if 'init' in misc or 'target' in misc:
+            protocol_str = 'fc-nvme.nvme_' if 'n_' in misc else 'fc-scsi.scsi_'
+            fl = 'initiator_id' if 'init' in misc else 'target_id'
+            table_protocol_str = 'initiator' if 'init' in misc else 'target'
+            query = "select port,{0} from {1}{2}"\
+                .format(fl,protocol_str,table_protocol_str)
+        else:
+            lun_field = 'namespace_id' if 'itn' in misc else 'lun'
+            protocol_str = 'fc-nvme' if 'itn' in misc else 'fc-scsi'
+            if "i_" in misc:
+                table_protocol_str = 'nvme_initiator_itn_flow' if 'itn' in misc else 'scsi_initiator_itl_flow'
+            elif "t_" in misc:
+                table_protocol_str = 'nvme_target_itn_flow' if 'itn' in misc else 'scsi_target_itl_flow'
+            query = "select port,initiator_id,target_id,{0} from {1}.{2}"\
+                .format(lun_field,protocol_str,table_protocol_str)
+
+    if args.histogram :
+        if args.initiator_itl:
+            table_name = 'scsi_initiator_itl_flow'
+            fields = ',initiator_id,target_id,lun'
+        elif args.target_itl:
+            table_name = 'scsi_target_itl_flow'
+            fields = ',initiator_id,target_id,lun'
+        elif args.initiator_itn:
+            table_name = 'nvme_initiator_itn_flow'
+            fields = ',initiator_id,target_id,namespace_id'
+        elif args.target_itn:
+            table_name = 'nvme_target_itn_flow'
+            fields = ',initiator_id,target_id,namespace_id'
+        elif args.initiator_it:
+            table_name = '{0}_initiator_it_flow'.format(table_protocol_str)
+            fields = ',initiator_id,target_id'
+        elif args.target_it:
+            table_name = '{0}_target_it_flow'.format(table_protocol_str)
+            fields = ',initiator_id,target_id'
+        elif args.initiator:
+            table_name = '{0}_initiator'.format(table_protocol_str)
+            fields = ',initiator_id'
+        elif args.target:
+            table_name = '{0}_target'.format(table_protocol_str)
+            fields = ',target_id'
+        query = "select read_io_rate, write_io_rate, read_io_bandwidth, \
+                write_io_bandwidth, read_io_size_min, read_io_size_max, \
+                {0}, {2}, write_io_size_min, write_io_size_max, {1}, {3}, \
+                read_io_initiation_time_min, read_io_initiation_time_max, \
+                total_read_io_initiation_time, write_io_initiation_time_min, \
+                write_io_initiation_time_max, total_write_io_initiation_time, \
+                read_io_completion_time_min, read_io_completion_time_max, \
+                total_read_io_time, write_io_completion_time_min, \
+                write_io_completion_time_max, total_write_io_time, \
+                total_read_io_inter_gap_time, total_write_io_inter_gap_time,\
+                read_io_aborts, write_io_aborts, read_io_failures, \
+                write_io_failures, peak_read_io_rate, peak_write_io_rate, \
+                peak_read_io_bandwidth, peak_write_io_bandwidth {4} from \
+                    {proto}.{fc_table}".format(trib, twib, tric, twic, fields,
+                                           fc_table=table_name,proto=protocol_str)
 
     filter_count = 0
     filters = {'interface': 'port', 'target': 'target_id',
@@ -3671,7 +4953,10 @@ def getData(args, misc=None, ver=None):
     query += " limit "+str(args.limit)
     #print ("Executing {0}".format(query))
     try:
-        json_str = cli.cli("show analytics query '" + query + "'")
+        if args.systemload_active:
+            json_str = cli.cli("show analytics query '" + query + "'" + "differential")
+        else:
+            json_str = cli.cli("show analytics query '" + query + "'")
     except cli.cli_syntax_error:
         pass
 
@@ -3693,6 +4978,7 @@ def getData(args, misc=None, ver=None):
         if args.histogram:
             if misc_opt == 0:
                 return getData(args, 1)
+    #print ("Jsone {0}".format(json_out))
     return json_out
 
 
@@ -3701,7 +4987,8 @@ def print_util_help(self):
 ShowAnalytics   --errors <options> | --errorsonly <options> | \
 --evaluate-npuload <options> | --help | --info <options> | \
 --minmax <options> | --outstanding-io <options> | \
---top <options> | --version |  --vsan-thput <options>
+--top <options> | --version |  --vsan-thput <options> | \
+--systemload-active <options> |  --histogram <options>
 
 
 OPTIONS :
@@ -3790,6 +5077,50 @@ interface <int1,int2>] [--outfile <out_file>]\
 and --interface arguments are not present
 
  --help                   Provides help about this utility
+ --histogram              Provide historical info about I,T,IT or IT(L/N) flows \
+ gathered at every given interval. Stores 12 instance of history collected at input interval. 
+                          ShowAnalytics --histogram [--\
+initiator-itl <args> | --target-itl <args> | --\
+initiator-itn <args> | --target-itn <args> | --\
+initiator-it <args> | --target-it <args>] | --initiator <args> | \
+--target <args> | --sessionId <session_id> | --show-sessions | \
+--stop-session
+
+      --initiator-itl         Provides ITL view for SCSI initiators ITLs
+                              Args :  [-- initiator <initiator_fcid>] \
+[--target <target_fcid>] [--lun <lun_id>] [--interval <interval>] [--metric <metric_list] \
+[--outfile <out_file>] [--appendfile <out_file>] 
+      --target-itl            Provides ITL view for SCSI target ITLs
+                              Args :  [--initiator <initiator_fcid>] \
+[--target <target_fcid>] [--lun <lun_id>] [--interval <interval>] [--metric <metric_list] \
+[--outfile <out_file>]  [--appendfile <out_file>] 
+      --initiator-itn         Provides ITN view for NVMe initiator ITNs
+                              Args :  [--initiator <initiator_fcid>] \
+[--target <target_fcid>]  [--namespace <namespace_id>] [--interval <interval>] [--metric <metric_list] \
+[--outfile <out_file>] [--appendfile <out_file>]
+      --target-itn            Provides ITN views for NVMe target ITNs
+                              Args :  [--initiator <initiator_fcid>] \
+[--target <target_fcid>]  [--namespace <namespace_id>] [--interval <interval>] [--metric <metric_list] \
+[--outfile <out_file>] [--appendfile <out_file>]
+      --initiator-it          Provides IT view for initiators ITs
+                              Args :  [--initiator <initiator_fcid>] \
+[--target <target_fcid>] [--interval <interval>] [--metric <metric_list] \
+[--outfile <out_file>] [--appendfile <out_file>] 
+      --target-it             Provides IT view for target ITs
+                              Args :  [--initiator <initiator_fcid>] \
+[--target <target_fcid>]d>] [--outfile <out_file>] [--appendfile <out_file>] \
+[--interval <interval>] [--metric <metric_list]
+      --initiator             Provides initiator view
+                              Args :  [--initiator <initiator_fcid>] \
+[--interval <interval>] [--metric <metric_list] [--outfile <out_file>] [--appendfile <out_file>] 
+      --target                Provides target view
+                              Args :  [--target <target_fcid>] \
+[--interval <interval>] [--metric <metric_list] [--outfile <out_file>] [--appendfile <out_file>] 
+      --sessionId             Shows histogram data collected by given session ID
+      --show-sessions         Shows active histogram monitor sessions
+      --stop-session          Stops given histogram monitor session 
+                              Args :  [--sessionId <session_id>]
+
 
  --info                   Provide information about IT(L/N) flows \
  gathered over 1 second
@@ -3872,6 +5203,10 @@ initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] [--\
 limit] [--refresh] [--alias] [--nvme] [--namespace <namespace_id>]\
 [--outfile <out_file>] [--appendfile <out_file>]
 
+ --systemload-active      Provides per module system load info for active IT(L/N)
+                          Args :  [--module <mod1,mod2>] [--detail] [--outfile <out_file>]\
+[--appendfile <out_file>]
+                          Provides system wide data if --module argument is not present
  --top                    Provides top IT(L/N)s based on key. Default key is IOPS
                           Args : [--interface <interface>] [--\
 initiator <initiator_fcid>] [--target <target_fcid>] [--lun <lun_id>] \
@@ -3884,6 +5219,8 @@ namespace <namespace_id>] [--outfile <out_file>] [--appendfile <out_file>]
                           Args : [--interface <interface>] [--nvme] \
 [--outfile <out_file>] [--appendfile <out_file>]
 
+
+
 ARGUMENTS:
 ---------
 
@@ -3891,6 +5228,9 @@ ARGUMENTS:
 initiator and target in place of FCID.
       --appendfile        <output_file>            Append output of the command \
 to a file on bootflash
+      --detail                                     Provides per AMC load for F64 card \
+--systemload-active
+      --interval          <interval>               Interval at which data is fetched for histogram
       --initiator         <initiator_fcid>         Specifies initiator FCID in \
 the format 0xDDAAPP
       --interface         <interface>              Specifies Interface in \
@@ -3902,7 +5242,8 @@ to display. Valid range 1-{flow_limit}. Default = {flow_limit}
       --lun               <lun_id>                 Specifies LUN ID in \
 the format XXXX-XXXX-XXXX-XXXX
       --module            <mod1,mod2>              Specifies module list \
-for --evaluate-npuload option example 1,2
+for --evaluate-npuload  or --systemload-active option example 1,2
+      --metric            <iops|ect|dal|errors>    Defines metrics for histogram
       --namespace         <namespace_id>           Specifies namespace in \
 the range 1-255
       --nvme                                       Provides NVMe related stats.
@@ -3912,6 +5253,7 @@ to a file on bootflash
 option. Should not be used on console
       --refresh                                    Refreshes output of --\
 outstanding-io
+      --sessionId         <session_id>             Histogram monitor session ID 
       --target            <target_fcid>            Specifies target FCID in \
 the format 0xDDAAPP
       --vsan              <vsan_number>            Specifies vsan number
@@ -3939,7 +5281,7 @@ argparse.ArgumentParser.print_help = print_util_help
 parser = argparse.ArgumentParser(prog='ShowAnalytics',
                                  description='ShowAnalytics')
 parser.add_argument('--version', action='version',
-                    help='version', version='%(prog)s 5.1.0')
+                    help='version', version='%(prog)s 5.2.0')
 parser.add_argument('--info', action="store_true",
                     help='--info | --errors mandatory')
 parser.add_argument('--nvme', action="store_true",
@@ -3991,6 +5333,21 @@ parser.add_argument('--progress', action="store_true",
 parser.add_argument('--outstanding-io', action="store_true",
                     help=' To display outstanding io per interface')
 parser.add_argument('--refresh', action="store_true", help='Auto refresh')
+parser.add_argument('--systemload-active', action="store_true",
+                    help='To Display per module system load for active IT(L/N)')
+parser.add_argument('--detail', action="store_true", help='Detailed information')
+parser.add_argument('--histogram', action="store_true",
+                    help="Shows historgram for particular ITL")
+parser.add_argument('--interval', dest="interval",
+                    help="<5-120>  Fetch interval in minutes. Default = 5| --histogram mandatory")
+parser.add_argument('--metric', dest="metric",
+                    help="iops or ect or dal or errors| --histogram mandatory")
+parser.add_argument('--show-sessions',  action="store_true",
+                    help="Display histogram session details| --histogram mandatory")
+parser.add_argument('--stop-session',  action="store_true",
+                    help="Stops histogram session | --histogram mandatory")
+parser.add_argument('--sessionId', dest="sessionId",
+                    help="Histogram monitor session id| --histogram mandatory")
 # parser.add_argument('--intlist',dest="intlist", help='int_list')
 
 
@@ -4006,9 +5363,11 @@ if '__cli_script_args_help' in sys.argv:
         print('--errorsonly|To display IT(L/N) flows with errors')
         print('--evaluate-npuload|To evaluate npuload on system')
         print('--help|To display help and exit')
+        print('--histogram|To provide histogram view of particular IT(L/N)')
         print('--info|To display information about IT(L/N) flows')
         print('--minmax|To display min max and peak info about IT(L/N) flows')
         print('--outstanding-io|To display outstanding io for an interface')
+        print('--systemload-active|To display system load info for active IT(L/N)s')
         print('--top|To display top 10 IT(L/N) Flow')
         print('--version|To display version of utility and exit')
         print('--vsan-thput|To display per vsan throughput for interface')
@@ -4045,6 +5404,22 @@ if '__cli_script_args_help' in sys.argv:
         exit(0)
     elif '--module' == sys.argv[-1]:
         print('1-3,5|module range to be considered')
+        exit(0) 
+    elif '--interval' == sys.argv[-1]:
+        print('<5-120>  Fetch interval in minutes. Default = 5,| Histogram data will be collected at every <interval> minutes')
+        exit(0) 
+    elif '--metric' == sys.argv[-1]:
+        print('IOPS|To Provide histogram view for iops')
+        print('ECT|To Provide histogram view for ect')
+        print('DAL|To Provide histogram view for dal')
+        print('ERRORS|To Provide histogram view for erros')
+        print('ALL|To Provide histogram view for iops,ect,dal and errors')
+        exit(0) 
+    elif '--sessionId' == sys.argv[-1]:
+        if '--stop-session' in sys.argv:
+            print('all or session id(s) |use histogram --show-sessions to get the IDs')
+        else:
+            print(' |use histogram --show-sessions to get the IDs')
         exit(0) 
 
     elif ('--errors' in sys.argv) or ('--errorsonly' in sys.argv) or ('--info' in sys.argv) or ('--minmax' in sys.argv):
@@ -4174,6 +5549,75 @@ if '__cli_script_args_help' in sys.argv:
             print('--refresh|auto-refresh the output')
         if '--nvme' not in sys.argv:
             print('--nvme|Provide NVMe related output')
+    elif '--systemload-active' in sys.argv:
+        if '--outfile' not in sys.argv:
+            print('--outfile|Provide output file name to write on bootflash on switch')
+        if '--appendfile' not in sys.argv:
+            print('--appendfile|Provide output file name to append on bootflash on switch')
+        if '--module' not in sys.argv:
+            print('--module|Provide module number')
+        if '--detail' not in sys.argv:
+            print('--detail|Provides per AMC load for F64 card')
+        print('<CR>|Run it')
+    elif ('--histogram' in sys.argv):
+        if ('--initiator-itl' in sys.argv) or ('--target-itl' in sys.argv):
+            if '--initiator' not in sys.argv:
+                print('--initiator|Provide initiator FCID in the format 0xDDAAPP')
+            if '--target' not in sys.argv:
+                print('--target|Provide target FCID in the format 0xDDAAPP')
+            if '--lun' not in sys.argv:
+                print('--lun|Provide LUN ID in the format XXXX-XXXX-XXXX-XXXX')
+            if '--interval' not in sys.argv:
+                print('--interval|Provide interval at which histogram data is collected')
+            if '--metric' not in sys.argv:
+                print('--metric|Provide metric for which histogram data needs to be collected')
+            if '--sessionId' not in sys.argv:
+                print('--sessionId|Provide process id of histogram session')
+        elif ('--initiator-it' in sys.argv) or ('--target-it' in sys.argv):
+            if '--initiator' not in sys.argv:
+                print('--initiator|Provide initiator FCID in the format 0xDDAAPP')
+            if '--target' not in sys.argv:
+                print('--target|Provide target FCID in the format 0xDDAAPP')
+            if '--interval' not in sys.argv:
+                print('--interval|Provide interval at which histogram data is collected')
+            if '--metric' not in sys.argv:
+                print('--metric|Provide metric for which histogram data needs to be collected')
+            if '--nvme' not in sys.argv:
+                print('--nvme|Provide NVMe related output')
+        elif ('--initiator-itn' in sys.argv) or ('--target-itn' in sys.argv):
+            if '--initiator' not in sys.argv:
+                print('--initiator|Provide initiator FCID in the format 0xDDAAPP')
+            if '--target' not in sys.argv:
+                print('--target|Provide target FCID in the format 0xDDAAPP')
+            if '--namespace' not in sys.argv:
+                print('--namespace|Provide NVMe Namespace id')
+            if '--interval' not in sys.argv:
+                print('--interval|Provide interval at which histogram data is collected')
+            if '--metric' not in sys.argv:
+                print('--metric|Provide metric for which histogram data needs to be collected')
+        elif '--show-sessions' in sys.argv:
+            print('<CR>|Run it')
+        elif '--stop-session' in sys.argv:
+            if '--sessionId' not in sys.argv:
+                print('--sessionId|Provide process id(s) of histogram session')
+        else:
+            print('--initiator-itl|Prints SCSI initiator side stats')
+            print('--target-itl|Prints SCSI target side stats')
+            print('--initiator-itn|Prints NVMe initiator side stats')
+            print('--target-itn|Prints NVMe target side stats')
+            print('--initiator-it|Prints initiator side stats')
+            print('--target-it|Prints target side stats')
+            print('--initiator|Provide initiator FCID in the format 0xDDAAPP')
+            print('--target|Provide target FCID in the format 0xDDAAPP')
+            print('--interval|Provide intervals at which histogram data is collected')
+            print('--metric|Provide metric for which histogram data needs to be collected')
+            print('--show-sessions|Display histogram session details')
+            print('--stop-session|Stops histogram session')
+        if '--outfile' not in sys.argv:
+            print('--outfile|Provide output file name to write on bootflash on switch')
+        if '--appendfile' not in sys.argv:
+            print('--appendfile|Provide output file name to append on bootflash on switch')
+
     exit(0)
 
 
@@ -4207,7 +5651,7 @@ if not feature:
 if not validateArgs(args, sw_ver):
     os._exit(1)
 
-date = formatdate()
+date = formatdate(localtime=True)
 
 if args.outfile:
     outfile = args.outfile
@@ -4218,7 +5662,7 @@ if args.outfile:
         print('Unable to write file on bootflash')
         sys.exit(0)
     try:
-        if not args.top or args.outstanding_io:
+        if not (args.top or args.systemload_active) or args.outstanding_io:
             fh.write("Data collected at : {}".format(date)+'\n')
         if args.top:
             fh.write('--------Output of --top--------' + '\n')
@@ -4236,7 +5680,7 @@ if args.appendfile:
     except:
         print('Unable to append file on bootflash')
     try:
-        if not args.top or args.outstanding_io:
+        if not (args.top or args.systemload_active) or args.outstanding_io:
             fh.write("Data collected at : {}".format(date)+'\n')
         if args.top:
             fh.write('--------Output of --top--------'+'\n')
@@ -4246,15 +5690,18 @@ if args.appendfile:
         print("Not able to write to a file, No space left on device")
         sys.exit(0)
 
-if not args.errorsonly:
+if not (args.errorsonly or args.systemload_active or args.histogram):
     print("Data collected at : {}".format(date))
 
-json_out = getData(args, ver=sw_ver)
+if not args.systemload_active and not args.show_sessions and not args.stop_session and not args.sessionId:
+    json_out = getData(args, ver=sw_ver)
+else:
+    json_out = ''
 
 if not json_out and (args.top or args.outstanding_io):
     json_out = ' '
 
-if not json_out and not args.evaluate_npuload:
+if not json_out and not (args.evaluate_npuload or args.systemload_active or args.show_sessions or args.stop_session or args.sessionId):
     if error_flag and 'empty' not in error['getData_str']:
         if error['getData_str'] == '':
             print("\n\t Table is empty\n")
@@ -4341,4 +5788,24 @@ else:
                     json_out = ' '
                 return_vector = displayOutstandingIo(json_out, return_vector,
                                                      ver=sw_ver)
+
+    elif args.systemload_active:
+          displaySystemLoadActive(ver=sw_ver)
+
+
+    elif args.histogram :
+        if args.show_sessions or args.stop_session:
+            sessionFiles = getHistogramSessions()
+            if sessionFiles:
+                if args.show_sessions:
+                    displayHistogramSessions(filenames=sessionFiles)
+                elif args.stop_session:
+                    stopHistogramSessions(args.sessionId)
+            else:
+                print("No histogram monitor sessions running")
+        else:
+            if args.sessionId:
+                displayHistogramSessions(sessionId=args.sessionId)
+            else:
+                return_vector = displayHistogram(args,json_out,ver=sw_ver)
 
